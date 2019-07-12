@@ -60,7 +60,7 @@ To connect to an etcd server that has mTLS client authentication, all of the fol
 
 ### Error handling
 
-e2db uses the package [github.com/pkg/errors](https://github.com/pkg/errors) for handling errors. For example, a query that does not return rows will returned the wrapped `error` type `ErrNoRows`, so the function [errors.Cause](https://godoc.org/github.com/pkg/errors#Cause)` must be called to get the underlying type for comparison:
+e2db uses the package [github.com/pkg/errors](https://github.com/pkg/errors) for handling errors. For example, a query that does not return rows will returned the wrapped `error` type `ErrNoRows`, so the function [errors.Cause](https://godoc.org/github.com/pkg/errors#Cause) must be called to get the underlying type for comparison:
 
 ```go
 if errors.Cause(err) == e2db.ErrNoRows {
