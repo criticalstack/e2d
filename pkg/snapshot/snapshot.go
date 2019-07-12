@@ -18,8 +18,8 @@ var providerTypes = []string{
 
 // ParseSnapshotBackupURL deconstructs a uri into a type prefix and a bucket
 // example inputs and outputs:
-//   file://file								-> file://, file
-//   s3://bucket								-> s3://, bucket
+//   file://file                                -> file://, file
+//   s3://bucket                                -> s3://, bucket
 //   https://nyc3.digitaloceanspaces.com/bucket -> digitaloceanspaces, bucket
 func ParseSnapshotBackupURL(url string) (string, string) {
 	match := ""
