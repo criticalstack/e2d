@@ -1,0 +1,8 @@
+bin/
+data/
+
+*.crt
+*.key
+
+# Go testing fixtures
+testdata
