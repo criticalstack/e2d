@@ -14,9 +14,11 @@ import (
 
 	"github.com/cloudflare/cfssl/csr"
 	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/gziputil"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/netutil"
 	"github.com/criticalstack/e2d/pkg/pki"
+	"github.com/criticalstack/e2d/pkg/snapshot"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -78,7 +80,7 @@ func (n *testCluster) saveSnapshot(name string) {
 		n.t.Fatal(err)
 	}
 	if node.cfg.SnapshotCompression {
-		data = newGzipReadCloser(data, gzip.BestCompression)
+		data = gziputil.NewGzipReadCloser(data, gzip.BestCompression)
 	}
 	if err := node.snapshotter.Save(data); err != nil {
 		n.t.Fatal(err)
@@ -178,8 +180,8 @@ func newSecureTestClient(addr, certFile, clientCertFile, clientKeyFile string) *
 	return c
 }
 
-func newFileSnapshotter(path string) *FileSnapshotter {
-	s, _ := NewFileSnapshotter(path)
+func newFileSnapshotter(path string) *snapshot.FileSnapshotter {
+	s, _ := snapshot.NewFileSnapshotter(path)
 	return s
 }
 
