@@ -11,12 +11,13 @@ import (
 )
 
 type Config struct {
-	ClientAddr string
-	CertFile   string
-	KeyFile    string
-	CAFile     string
-	Namespace  string
-	Timeout    time.Duration
+	ClientAddr       string
+	CertFile         string
+	KeyFile          string
+	CAFile           string
+	Namespace        string
+	Timeout          time.Duration
+	AutoSyncInterval time.Duration
 
 	clientURL      url.URL
 	securityConfig client.SecurityConfig

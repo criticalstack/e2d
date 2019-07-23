@@ -35,9 +35,14 @@ func (sc SecurityConfig) TLSInfo() transport.TLSInfo {
 }
 
 type Config struct {
-	ClientURLs       []string
-	SecurityConfig   SecurityConfig
-	Timeout          time.Duration
+	ClientURLs     []string
+	SecurityConfig SecurityConfig
+	Timeout        time.Duration
+
+	// NOTE: AutoSync sets client endpoints based upon the current members.
+	// This can cause the endpoints to become unreachable if the members are
+	// not directly accessible (e.g. a terminating load balancer). This is
+	// disabled by default and can be enabled by passed a non-zero duration.
 	AutoSyncInterval time.Duration
 }
 

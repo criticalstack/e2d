@@ -68,7 +68,7 @@ func TestGossipDelegate(t *testing.T) {
 
 	g1.Update(Pending)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	ticker := time.NewTicker(time.Second)

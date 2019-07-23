@@ -21,8 +21,9 @@ func New(cfg *Config) (*DB, error) {
 		return nil, err
 	}
 	c, err := client.New(&client.Config{
-		ClientURLs:     []string{cfg.clientURL.String()},
-		SecurityConfig: cfg.securityConfig,
+		ClientURLs:       []string{cfg.clientURL.String()},
+		SecurityConfig:   cfg.securityConfig,
+		AutoSyncInterval: cfg.AutoSyncInterval,
 	})
 	if err != nil {
 		return nil, err
@@ -30,9 +31,11 @@ func New(cfg *Config) (*DB, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
-	if err := c.Sync(ctx); err != nil {
-		return nil, errors.Wrapf(err, "cannot perform sync, database may be unavailable: %s", cfg.clientURL.String())
+
+	if _, err := c.MemberList(ctx); err != nil {
+		return nil, errors.Wrapf(err, "cannot perform request, database may be unavailable: %s", cfg.clientURL.String())
 	}
+
 	if cfg.Namespace != "" {
 		c.KV = namespace.NewKV(c.KV, "/"+cfg.Namespace)
 		c.Watcher = namespace.NewWatcher(c.Watcher, "/"+cfg.Namespace)
