@@ -21,7 +21,7 @@ type FieldDef struct {
 }
 
 func (f *FieldDef) isIndex() bool {
-	return f.hasTag("index", "unique")
+	return f.isPrimaryKey() || f.hasTag("index", "unique")
 }
 
 func (f *FieldDef) hasTag(tags ...string) bool {

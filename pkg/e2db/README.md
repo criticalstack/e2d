@@ -118,7 +118,7 @@ where an index key/value exists for every item that is indexed. In other words, 
 Creating a table object can be achieved by passing in a concrete type for the defined table:
 
 ```go
-users := db.Table(User{})
+users := db.Table(new(User))
 ```
 
 This can now be used as a reference to refer to that table. Under the hood, e2db is using this to lazily store and check any subsequent operations to match an existing schema (stored in the table metadata) with the one passed in. Checking this schema ensures that a table schema other than one already defined for a table will result in an error.
