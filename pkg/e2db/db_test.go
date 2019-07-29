@@ -56,6 +56,7 @@ type Role struct {
 	ResourceQuota  string
 	LimitRange     string
 	SuperAdminOnly bool
+	NotIndexed     string
 }
 
 var newRoles = []*Role{
@@ -121,6 +122,16 @@ func TestFindManyIndex(t *testing.T) {
 	}
 	if diff := cmp.Diff(expected, r); diff != "" {
 		t.Errorf("e2db: after Find differs: (-want +got)\n%s", diff)
+	}
+}
+
+func TestFindManyNoIndex(t *testing.T) {
+	resetTable(t)
+	roles := db.Table(&Role{})
+	var r []*Role
+	err := roles.Find("NotIndexed", "value", &r)
+	if errors.Cause(err) != ErrNotIndexed {
+		t.Fatal("expect 'field is not indexed' error")
 	}
 }
 
