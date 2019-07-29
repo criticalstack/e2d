@@ -247,12 +247,15 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 	}
 	f, ok := q.t.meta.Fields[fieldName]
 	if !ok {
-		return errors.Errorf("invalid field name: %#v", fieldName)
+		return errors.Wrap(ErrInvalidField, fieldName)
 	}
-	if v.Type().Kind() == reflect.Slice {
-		return q.findManyByIndex(key.Indexes(q.t.meta.Name, f.Name, toString(data)), v)
+	if !f.isIndex() {
+		return errors.Wrap(ErrNotIndexed, fieldName)
 	}
 	k := toString(data)
+	if v.Type().Kind() == reflect.Slice {
+		return q.findManyByIndex(key.Indexes(q.t.meta.Name, f.Name, k), v)
+	}
 	switch f.Type() {
 	case PrimaryKey:
 		return q.findOneByPrimaryKey(key.ID(q.t.meta.Name, k), v)
@@ -261,7 +264,7 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 	case SecondaryIndex:
 		return q.findOneBySecondaryIndex(key.Indexes(q.t.meta.Name, f.Name, k), v)
 	default:
-		return errors.Errorf("field is not indexed: %#v", fieldName)
+		return errors.Errorf("field %#v has invalid index type: %#v", fieldName, f.Type())
 	}
 }
 
