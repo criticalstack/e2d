@@ -175,6 +175,26 @@ func TestCount(t *testing.T) {
 	}
 }
 
+func TestCountPrimaryIndex(t *testing.T) {
+	resetTable(t)
+	roles := db.Table(&Role{})
+	n, err := roles.Count("ID", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("expected count 1, received %d", n)
+	}
+
+	n, err = roles.Count("ID", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("expected count 0, received %d", n)
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	resetTable(t)
 	roles := db.Table(&Role{})
