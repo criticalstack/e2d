@@ -223,10 +223,11 @@ func (q *query) Count(fieldName string, data interface{}) (int64, error) {
 	if !ok {
 		return 0, errors.Wrap(ErrInvalidField, fieldName)
 	}
-	if !f.isIndex() {
-		return 0, errors.Wrap(ErrNotIndexed, fieldName)
+	k, err := f.indexKey(q.t.meta.Name, toString(data))
+	if err != nil {
+		return 0, err
 	}
-	return q.t.db.client.Count(key.Indexes(q.t.meta.Name, f.Name, toString(data)))
+	return q.t.db.client.Count(k)
 }
 
 func (q *query) Find(fieldName string, data interface{}, to interface{}) error {

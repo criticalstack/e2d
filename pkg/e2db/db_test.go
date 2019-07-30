@@ -175,6 +175,26 @@ func TestCount(t *testing.T) {
 	}
 }
 
+func TestCountPrimaryIndex(t *testing.T) {
+	resetTable(t)
+	roles := db.Table(&Role{})
+	n, err := roles.Count("ID", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("expected count 1, received %d", n)
+	}
+
+	n, err = roles.Count("ID", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("expected count 0, received %d", n)
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	resetTable(t)
 	roles := db.Table(&Role{})
@@ -194,6 +214,74 @@ func TestUpdate(t *testing.T) {
 	}
 	expected := &Role{ID: 1, Name: "user", Description: "updated user"}
 	if diff := cmp.Diff(expected, &r); diff != "" {
+		t.Errorf("e2db: after Update differs: (-want +got)\n%s", diff)
+	}
+}
+
+func TestDeletePrimaryIndex(t *testing.T) {
+	resetTable(t)
+	roles := db.Table(&Role{})
+
+	n, err := roles.Delete("ID", 10)
+	if err != nil {
+		t.Fatalf("unexpected error deleting non-existant key: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected zero rows affected when deleting non-existant key, got %d", n)
+	}
+
+	n, err = roles.Delete("ID", 1)
+	if err != nil {
+		t.Fatalf("unexpected error deleting by ID: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected one row affected when deleting by ID, got %d", n)
+	}
+
+	var r []*Role
+	if err := roles.All(&r); err != nil {
+		t.Fatal(err)
+	}
+	expected := []*Role{
+		{ID: 2, Name: "admin", Description: "administrator"},
+		{ID: 3, Name: "superadmin", Description: "administrator"},
+		{ID: 4, Name: "smoot", Description: "administrator"},
+	}
+	if diff := cmp.Diff(expected, r); diff != "" {
+		t.Errorf("e2db: after Update differs: (-want +got)\n%s", diff)
+	}
+}
+
+func TestDeleteSecondaryIndex(t *testing.T) {
+	resetTable(t)
+	roles := db.Table(&Role{})
+
+	n, err := roles.Delete("Name", "n/a")
+	if err != nil {
+		t.Fatalf("unexpected error deleting non-existant key: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected zero rows affected when deleting non-existant key, got %d", n)
+	}
+
+	n, err = roles.Delete("Name", "smoot")
+	if err != nil {
+		t.Fatalf("unexpected error deleting by Name: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected one row affected when deleting by Name, got %d", n)
+	}
+
+	var r []*Role
+	if err := roles.All(&r); err != nil {
+		t.Fatal(err)
+	}
+	expected := []*Role{
+		{ID: 1, Name: "user", Description: "user"},
+		{ID: 2, Name: "admin", Description: "administrator"},
+		{ID: 3, Name: "superadmin", Description: "administrator"},
+	}
+	if diff := cmp.Diff(expected, r); diff != "" {
 		t.Errorf("e2db: after Update differs: (-want +got)\n%s", diff)
 	}
 }

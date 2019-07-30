@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/criticalstack/e2d/pkg/e2db/key"
 	"github.com/pkg/errors"
 )
 
@@ -64,6 +65,17 @@ func (f *FieldDef) Type() IndexType {
 		return UniqueIndex
 	default:
 		return NoIndex
+	}
+}
+
+func (f *FieldDef) indexKey(tableName string, value string) (string, error) {
+	switch f.Type() {
+	case PrimaryKey:
+		return key.ID(tableName, value), nil
+	case SecondaryIndex, UniqueIndex:
+		return key.Indexes(tableName, f.Name, value), nil
+	default:
+		return "", errors.Wrap(ErrNotIndexed, f.Name)
 	}
 }
 
