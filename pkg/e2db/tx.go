@@ -180,12 +180,18 @@ func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
 		return 0, errors.Errorf("invalid field name: %#v", fieldName)
 	}
 	k := toString(data)
-	if !f.isIndex() {
-		_, err := tx.db.client.Delete(context.TODO(), key.ID(tx.meta.Name, k))
-		return 0, err
+	if f.isPrimaryKey() {
+		resp, err := tx.db.client.Delete(context.TODO(), key.ID(tx.meta.Name, k))
+		if err != nil {
+			return 0, err
+		}
+		return resp.Deleted, nil
 	}
 	kvs, err := tx.db.client.Prefix(key.Indexes(tx.meta.Name, fieldName, k))
 	if err != nil {
+		if errors.Cause(err) == client.ErrKeyNotFound {
+			return 0, nil
+		}
 		return 0, err
 	}
 	var deleted int64
@@ -199,7 +205,6 @@ func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
 		if err != nil {
 			return deleted, err
 		}
-		deleted += resp.Deleted
 	}
 	return deleted, nil
 }
