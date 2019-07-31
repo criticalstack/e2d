@@ -155,16 +155,18 @@ func (tx *Tx) Update(iface interface{}) error {
 		if reflect.DeepEqual(f.value.Interface(), dbFieldValue.Interface()) {
 			continue
 		}
+
+		// if field is required and zero-value, it is safe to presume it was
+		// already set
+		if f.hasTag("required") && f.isZero() {
+			continue
+		}
 		for _, tag := range f.Tags {
 			switch tag.Name {
 			case "index":
 				oldIdx := key.Index(m.Name, f.Name, toString(dbFieldValue.Interface()), id)
 				newIdx := key.Index(m.Name, f.Name, toString(f.value.Interface()), id)
 				indexes[oldIdx] = newIdx
-			case "required":
-				if f.isZero() {
-					return errors.Wrap(ErrFieldRequired, f.Name)
-				}
 			case "unique":
 				oldIdx := key.Unique(m.Name, f.Name, toString(dbFieldValue.Interface()))
 				newIdx := key.Unique(m.Name, f.Name, toString(f.value.Interface()))
