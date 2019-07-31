@@ -261,14 +261,15 @@ func TestDeleteSecondaryIndex(t *testing.T) {
 		t.Fatalf("unexpected error deleting non-existant key: %v", err)
 	}
 	if n != 0 {
-		t.Fatalf("expected zero rows affected when deleting non-existant key, got %d", n)
+		t.Fatalf("expected zero rows affected when deleting non-existent key, got %d", n)
 	}
 
 	n, err = roles.Delete("Name", "smoot")
 	if err != nil {
 		t.Fatalf("unexpected error deleting by Name: %v", err)
 	}
-	if n != 1 {
+	// NOTE(chris): includes value and index
+	if n != 2 {
 		t.Fatalf("expected one row affected when deleting by Name, got %d", n)
 	}
 
