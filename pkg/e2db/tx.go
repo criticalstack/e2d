@@ -11,6 +11,7 @@ import (
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/etcdserver/etcdserverpb"
 )
 
 var (
@@ -28,12 +29,37 @@ func (t *Table) Tx(fn func(*Tx) error) error {
 	if err := t.tableMustExist(); err != nil {
 		return err
 	}
+
+	// TODO(chris): add a way to set the timeout here
 	unlock, err := t.db.client.Lock(key.TableLock(t.meta.Name), t.db.cfg.Timeout)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+
 	return fn(&Tx{t})
+}
+
+type batchResponse struct {
+	Deleted int64
+}
+
+func (tx *Tx) batchOps(ops ...clientv3.Op) (*batchResponse, error) {
+	resp, err := tx.db.client.Txn(context.TODO()).Then(ops...).Commit()
+	if err != nil {
+		return nil, err
+	}
+	br := &batchResponse{}
+	for _, r := range resp.Responses {
+		switch t := r.Response.(type) {
+		case *etcdserverpb.ResponseOp_ResponseRange:
+		case *etcdserverpb.ResponseOp_ResponsePut:
+		case *etcdserverpb.ResponseOp_ResponseDeleteRange:
+			br.Deleted += t.ResponseDeleteRange.Deleted
+		case *etcdserverpb.ResponseOp_ResponseTxn:
+		}
+	}
+	return br, err
 }
 
 func (tx *Tx) Insert(iface interface{}) error {
@@ -90,15 +116,13 @@ func (tx *Tx) Insert(iface interface{}) error {
 	if err != nil {
 		return err
 	}
-	if err := tx.db.client.Set(key.ID(m.Name, id), string(data)); err != nil {
-		return err
-	}
+	ops := make([]clientv3.Op, 0)
+	ops = append(ops, clientv3.OpPut(key.ID(m.Name, id), string(data)))
 	for _, idx := range indexes {
-		if err := tx.db.client.Set(idx, key.ID(m.Name, id)); err != nil {
-			return err
-		}
+		ops = append(ops, clientv3.OpPut(idx, key.ID(m.Name, id)))
 	}
-	return nil
+	_, err = tx.batchOps(ops...)
+	return err
 }
 
 func (tx *Tx) Update(iface interface{}) error {
@@ -160,18 +184,14 @@ func (tx *Tx) Update(iface interface{}) error {
 	if err != nil {
 		return err
 	}
-	if err := tx.db.client.Set(key.ID(m.Name, id), string(data)); err != nil {
-		return err
-	}
+	ops := make([]clientv3.Op, 0)
+	ops = append(ops, clientv3.OpPut(key.ID(m.Name, id), string(data)))
 	for oldIdx, newIdx := range indexes {
-		if _, err := tx.db.client.Delete(context.TODO(), oldIdx); err != nil {
-			return err
-		}
-		if err := tx.db.client.Set(newIdx, key.ID(m.Name, id)); err != nil {
-			return err
-		}
+		ops = append(ops, clientv3.OpDelete(oldIdx))
+		ops = append(ops, clientv3.OpPut(newIdx, key.ID(m.Name, id)))
 	}
-	return nil
+	_, err = tx.batchOps(ops...)
+	return err
 }
 
 func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
@@ -194,19 +214,16 @@ func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
 		}
 		return 0, err
 	}
-	var deleted int64
+	ops := make([]clientv3.Op, 0)
 	for _, kv := range kvs {
-		resp, err := tx.db.client.Delete(context.TODO(), string(kv.Key))
-		if err != nil {
-			return deleted, err
-		}
-		deleted += resp.Deleted
-		resp, err = tx.db.client.Delete(context.TODO(), string(kv.Value))
-		if err != nil {
-			return deleted, err
-		}
+		ops = append(ops, clientv3.OpDelete(string(kv.Key)))
+		ops = append(ops, clientv3.OpDelete(string(kv.Value)))
 	}
-	return deleted, nil
+	resp, err := tx.batchOps(ops...)
+	if err != nil {
+		return 0, err
+	}
+	return resp.Deleted, nil
 }
 
 func (tx *Tx) DeleteAll() error {
@@ -214,16 +231,15 @@ func (tx *Tx) DeleteAll() error {
 	if err != nil {
 		return err
 	}
+	ops := make([]clientv3.Op, 0)
 	for _, kv := range kvs {
 		if strings.Contains(string(kv.Key), key.TableDef(tx.meta.Name)) {
 			continue
 		}
-		_, err := tx.db.client.Delete(context.TODO(), string(kv.Key))
-		if err != nil {
-			return err
-		}
+		ops = append(ops, clientv3.OpDelete(string(kv.Key)))
 	}
-	return nil
+	_, err = tx.batchOps(ops...)
+	return err
 }
 
 func (tx *Tx) Drop() error {
@@ -242,6 +258,6 @@ func (tx *Tx) Drop() error {
 		return err
 	}
 	resp, err := tx.db.client.Delete(context.TODO(), key.Table(tx.meta.Name), clientv3.WithPrefix())
-	log.Debugf("dropped table %s, %d rows deleted\n", tx.meta.Name, resp.Deleted)
+	log.Debugf("dropped table %s, %d rows deleted", tx.meta.Name, resp.Deleted)
 	return err
 }

@@ -15,7 +15,7 @@ var (
 		NewEncoder(NewDefaultEncoderConfig()),
 		zapcore.AddSync(os.Stderr),
 		level,
-	))
+	), zap.AddCaller())
 )
 
 // NewLogger creates a new child logger with the provided namespace.
@@ -28,7 +28,7 @@ func NewLogger(ns string) *zap.Logger {
 			zapcore.AddSync(os.Stderr),
 			level,
 		)
-	}))
+	}), zap.AddCaller())
 }
 
 // NewLogger creates a new child logger with the provided namespace and level.
