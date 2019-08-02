@@ -2,6 +2,8 @@ package e2db
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/etcdserver/etcdserverpb"
+	"go.uber.org/zap"
 )
 
 var (
@@ -196,36 +199,102 @@ func (tx *Tx) Update(iface interface{}) error {
 	return err
 }
 
+// getIndexesByPrimaryKey returns all index keys for the provided primary key
+// based on the stored value.
+func (tx *Tx) getIndexesByPrimaryKey(pk string) ([]string, error) {
+	val := tx.meta.New()
+	if val == nil {
+		return nil, errors.Errorf("underlying type is uninitialized: %s", tx.meta.Name)
+	}
+	v := reflect.Indirect(reflect.ValueOf(val.Interface()))
+	if err := newQuery(tx.Table).findOneByPrimaryKey(pk, v); err != nil {
+		if errors.Cause(err) == ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	keys := []string{pk}
+	_, id := filepath.Split(pk)
+	for n, f := range tx.meta.Fields {
+		switch f.Type() {
+		case UniqueIndex:
+			keys = append(keys, key.Unique(tx.meta.Name, n, toString(v.FieldByName(n).Interface())))
+		case SecondaryIndex:
+			keys = append(keys, key.Index(tx.meta.Name, n, toString(v.FieldByName(n).Interface()), id))
+		}
+	}
+	return keys, nil
+}
+
+func deleteOps(keys []string) (ops []clientv3.Op) {
+	for _, k := range keys {
+		ops = append(ops, clientv3.OpDelete(k))
+	}
+	return
+}
+
 func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
+	var n int64
+	st := time.Now()
+	defer func() {
+		log.Debug("tx.Delete",
+			zap.String("key", fmt.Sprintf("%s/%v", tx.meta.Name, fieldName)),
+			zap.String("q", toString(data)),
+			zap.Int64("n", n),
+			zap.Duration("elapsed", time.Now().Sub(st)),
+		)
+	}()
 	f, ok := tx.meta.Fields[fieldName]
 	if !ok {
 		return 0, errors.Errorf("invalid field name: %#v", fieldName)
 	}
 	k := toString(data)
-	if f.isPrimaryKey() {
-		resp, err := tx.db.client.Delete(context.TODO(), key.ID(tx.meta.Name, k))
+	pks := make([]string, 0)
+
+	// get the primary key of the item(s) being deleted
+	switch f.Type() {
+	case PrimaryKey:
+		pks = append(pks, key.ID(tx.meta.Name, k))
+	case UniqueIndex:
+		b, err := tx.db.client.Get(key.Unique(tx.meta.Name, fieldName, k))
+		if err != nil {
+			if errors.Cause(err) == client.ErrKeyNotFound {
+				return 0, nil
+			}
+			return 0, err
+		}
+		pks = append(pks, string(b))
+	case SecondaryIndex:
+		x := key.Indexes(tx.meta.Name, fieldName, k)
+		kvs, err := tx.db.client.Prefix(x)
+		if err != nil {
+			if errors.Cause(err) == client.ErrKeyNotFound {
+				return 0, nil
+			}
+			return 0, err
+		}
+		for _, kv := range kvs {
+			pks = append(pks, string(kv.Value))
+		}
+	default:
+		return 0, errors.Wrapf(ErrNotIndexed, "cannot delete %#v", fieldName)
+	}
+
+	ops := make([]clientv3.Op, 0)
+	for _, pk := range pks {
+		keys, err := tx.getIndexesByPrimaryKey(pk)
 		if err != nil {
 			return 0, err
 		}
-		return resp.Deleted, nil
-	}
-	kvs, err := tx.db.client.Prefix(key.Indexes(tx.meta.Name, fieldName, k))
-	if err != nil {
-		if errors.Cause(err) == client.ErrKeyNotFound {
-			return 0, nil
+		if len(keys) > 0 {
+			n++
 		}
+		ops = append(ops, deleteOps(keys)...)
+	}
+	if _, err := tx.batchOps(ops...); err != nil {
 		return 0, err
 	}
-	ops := make([]clientv3.Op, 0)
-	for _, kv := range kvs {
-		ops = append(ops, clientv3.OpDelete(string(kv.Key)))
-		ops = append(ops, clientv3.OpDelete(string(kv.Value)))
-	}
-	resp, err := tx.batchOps(ops...)
-	if err != nil {
-		return 0, err
-	}
-	return resp.Deleted, nil
+	return n, nil
 }
 
 func (tx *Tx) DeleteAll() error {

@@ -82,6 +82,8 @@ func (f *FieldDef) indexKey(tableName string, value string) (string, error) {
 type ModelDef struct {
 	Name   string
 	Fields map[string]*FieldDef
+
+	t reflect.Type
 }
 
 func NewModelDef(t reflect.Type) *ModelDef {
@@ -94,6 +96,7 @@ func NewModelDef(t reflect.Type) *ModelDef {
 	m := &ModelDef{
 		Name:   t.Name(),
 		Fields: make(map[string]*FieldDef),
+		t:      t,
 	}
 	for i := 0; i < t.NumField(); i++ {
 		ft := t.Field(i)
@@ -114,6 +117,14 @@ func NewModelDef(t reflect.Type) *ModelDef {
 		}
 	}
 	return m
+}
+
+func (m *ModelDef) New() *reflect.Value {
+	if m.t == nil {
+		return nil
+	}
+	v := reflect.New(m.t)
+	return &v
 }
 
 type Field struct {
