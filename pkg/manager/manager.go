@@ -51,6 +51,7 @@ func New(cfg *Config) (*Manager, error) {
 			RequiredClusterSize: cfg.RequiredClusterSize,
 			ClientSecurity:      cfg.ClientSecurity,
 			PeerSecurity:        cfg.PeerSecurity,
+			EtcdLogLevel:        cfg.EtcdLogLevel,
 			Debug:               cfg.Debug,
 			EnableLocalListener: true,
 		}),

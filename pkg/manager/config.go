@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func init() {
@@ -89,6 +90,9 @@ type Config struct {
 
 	// configures authentication/transport security within the etcd cluster
 	PeerSecurity client.SecurityConfig
+
+	// configures the level of the logger used by etcd
+	EtcdLogLevel zapcore.Level
 
 	discovery.PeerProvider
 	snapshot.SnapshotProvider

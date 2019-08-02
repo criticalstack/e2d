@@ -53,6 +53,9 @@ type serverConfig struct {
 	// add a local client listener (i.e. 127.0.0.1)
 	EnableLocalListener bool
 
+	// configures the level of the logger used by etcd
+	EtcdLogLevel zapcore.Level
+
 	Debug bool
 }
 
@@ -169,7 +172,7 @@ func (s *server) startEtcd(state string, peers []*Peer) error {
 	cfg.Logger = "zap"
 	cfg.Debug = s.cfg.Debug
 	cfg.ZapLoggerBuilder = func(c *embed.Config) error {
-		l := log.NewLoggerWithLevel("etcd", zapcore.InfoLevel)
+		l := log.NewLoggerWithLevel("etcd", s.cfg.EtcdLogLevel)
 		return embed.NewZapCoreLoggerBuilder(l, l.Core(), zapcore.AddSync(os.Stderr))(c)
 	}
 	cfg.AutoCompactionMode = embed.CompactorModePeriodic
