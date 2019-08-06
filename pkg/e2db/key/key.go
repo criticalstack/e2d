@@ -27,7 +27,7 @@ func ID(model, key string) string {
 }
 
 func Table(model string) string {
-	return join(model)
+	return join(model) + "/"
 }
 
 func TableDef(model string) string {

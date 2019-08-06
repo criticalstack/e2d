@@ -255,6 +255,14 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 	}
 	k := toString(data)
 	if v.Type().Kind() == reflect.Slice {
+		if f.isPrimaryKey() {
+			item := reflect.New(v.Type().Elem())
+			if err := q.findOneByPrimaryKey(key.ID(q.t.meta.Name, k), reflect.Indirect(item)); err != nil {
+				return err
+			}
+			v.Set(reflect.Append(v, item.Elem()))
+			return nil
+		}
 		return q.findManyByIndex(key.Indexes(q.t.meta.Name, f.Name, k), v)
 	}
 	switch f.Type() {
