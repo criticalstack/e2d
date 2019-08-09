@@ -15,7 +15,10 @@ import (
 
 var db *DB
 
-func init() {
+func initDB() {
+	if db != nil {
+		return
+	}
 	log.SetLevel(zapcore.DebugLevel)
 
 	if err := os.RemoveAll("testdata"); err != nil {
@@ -68,6 +71,7 @@ var newRoles = []*Role{
 }
 
 func resetTable(t *testing.T) {
+	initDB()
 	roles := db.Table(&Role{})
 	if err := roles.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
 		t.Fatal(err)
