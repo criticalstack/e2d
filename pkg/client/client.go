@@ -165,7 +165,10 @@ func (c *Client) Prefix(key string) ([]*mvccpb.KeyValue, error) {
 }
 
 func (c *Client) Lock(key string, timeout time.Duration) (context.CancelFunc, error) {
-	session, err := concurrency.NewSession(c.Client)
+	// The session uses a low TTL to ensure that keep alives are sent more
+	// frequently than the default. This ensures that a failed node with
+	// initiated locks will not cause a deadlock for more than 5 seconds.
+	session, err := concurrency.NewSession(c.Client, concurrency.WithTTL(5))
 	if err != nil {
 		return nil, err
 	}
