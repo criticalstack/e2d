@@ -219,7 +219,7 @@ func (q *query) Count(fieldName string, data interface{}) (int64, error) {
 	if err := q.t.tableMustExist(); err != nil {
 		return 0, err
 	}
-	f, ok := q.t.meta.Fields[fieldName]
+	f, ok := q.t.meta.getFieldByName(fieldName)
 	if !ok {
 		return 0, errors.Wrap(ErrInvalidField, fieldName)
 	}
@@ -246,7 +246,7 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 	if err := q.t.validateSchema(v.Type()); err != nil {
 		return err
 	}
-	f, ok := q.t.meta.Fields[fieldName]
+	f, ok := q.t.meta.getFieldByName(fieldName)
 	if !ok {
 		return errors.Wrap(ErrInvalidField, fieldName)
 	}
@@ -265,7 +265,7 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 		}
 		return q.findManyByIndex(key.Indexes(q.t.meta.Name, f.Name, k), v)
 	}
-	switch f.Type() {
+	switch f.indexType() {
 	case PrimaryKey:
 		return q.findOneByPrimaryKey(key.ID(q.t.meta.Name, k), v)
 	case UniqueIndex:
@@ -273,7 +273,7 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 	case SecondaryIndex:
 		return q.findOneBySecondaryIndex(key.Indexes(q.t.meta.Name, f.Name, k), v)
 	default:
-		return errors.Errorf("field %#v has invalid index type: %#v", fieldName, f.Type())
+		return errors.Errorf("field %#v has invalid index type: %#v", fieldName, f.indexType())
 	}
 }
 

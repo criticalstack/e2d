@@ -80,15 +80,15 @@ func (tx *Tx) Insert(iface interface{}) error {
 			if err != nil {
 				return err
 			}
-			switch pk.value.Kind() {
+			switch pk.v.Kind() {
 			case reflect.Int:
-				pk.value.Set(reflect.ValueOf(int(id)))
+				pk.v.Set(reflect.ValueOf(int(id)))
 			case reflect.Int64:
-				pk.value.Set(reflect.ValueOf(int64(id)))
+				pk.v.Set(reflect.ValueOf(int64(id)))
 			}
 		}
 	}
-	id := toString(pk.value.Interface())
+	id := toString(pk.v.Interface())
 	if id == "" {
 		return errors.Wrapf(ErrInvalidPrimaryKey, "cannot be empty: %#v", pk.Name)
 	}
@@ -97,19 +97,19 @@ func (tx *Tx) Insert(iface interface{}) error {
 		for _, tag := range f.Tags {
 			switch tag.Name {
 			case "index":
-				indexes = append(indexes, key.Index(m.Name, f.Name, toString(f.value.Interface()), id))
+				indexes = append(indexes, key.Index(m.Name, f.Name, toString(f.v.Interface()), id))
 			case "required":
 				if f.isZero() {
 					return errors.Wrap(ErrFieldRequired, f.Name)
 				}
 			case "unique":
-				k := key.Unique(m.Name, f.Name, toString(f.value.Interface()))
+				k := key.Unique(m.Name, f.Name, toString(f.v.Interface()))
 				ok, err := tx.db.client.Exists(k)
 				if err != nil {
 					return err
 				}
 				if ok {
-					return errors.Wrapf(ErrUniqueConstraint, "%#v: %#v", f.Name, f.value.String())
+					return errors.Wrapf(ErrUniqueConstraint, "%#v: %#v", f.Name, f.v.String())
 				}
 				indexes = append(indexes, k)
 			}
@@ -138,7 +138,7 @@ func (tx *Tx) Update(iface interface{}) error {
 	if err != nil {
 		return err
 	}
-	id := toString(pk.value.Interface())
+	id := toString(pk.v.Interface())
 	if id == "" {
 		return errors.Wrapf(ErrInvalidPrimaryKey, "cannot be empty: %#v", pk.Name)
 	}
@@ -155,7 +155,7 @@ func (tx *Tx) Update(iface interface{}) error {
 			continue
 		}
 		dbFieldValue := dbValue.FieldByName(f.Name)
-		if reflect.DeepEqual(f.value.Interface(), dbFieldValue.Interface()) {
+		if reflect.DeepEqual(f.v.Interface(), dbFieldValue.Interface()) {
 			continue
 		}
 
@@ -168,22 +168,22 @@ func (tx *Tx) Update(iface interface{}) error {
 			switch tag.Name {
 			case "index":
 				oldIdx := key.Index(m.Name, f.Name, toString(dbFieldValue.Interface()), id)
-				newIdx := key.Index(m.Name, f.Name, toString(f.value.Interface()), id)
+				newIdx := key.Index(m.Name, f.Name, toString(f.v.Interface()), id)
 				indexes[oldIdx] = newIdx
 			case "unique":
 				oldIdx := key.Unique(m.Name, f.Name, toString(dbFieldValue.Interface()))
-				newIdx := key.Unique(m.Name, f.Name, toString(f.value.Interface()))
+				newIdx := key.Unique(m.Name, f.Name, toString(f.v.Interface()))
 				ok, err := tx.db.client.Exists(newIdx)
 				if err != nil {
 					return err
 				}
 				if ok {
-					return errors.Wrapf(ErrUniqueConstraint, "%#v: %#v", f.Name, f.value.String())
+					return errors.Wrapf(ErrUniqueConstraint, "%#v: %#v", f.Name, f.v.String())
 				}
 				indexes[oldIdx] = newIdx
 			}
 		}
-		dbFieldValue.Set(f.value)
+		dbFieldValue.Set(f.v)
 	}
 	data, err := tx.c.Encode(dbValue.Interface())
 	if err != nil {
@@ -215,12 +215,12 @@ func (tx *Tx) getIndexesByPrimaryKey(pk string) ([]string, error) {
 	}
 	keys := []string{pk}
 	_, id := filepath.Split(pk)
-	for n, f := range tx.meta.Fields {
-		switch f.Type() {
+	for _, f := range tx.meta.Fields {
+		switch f.indexType() {
 		case UniqueIndex:
-			keys = append(keys, key.Unique(tx.meta.Name, n, toString(v.FieldByName(n).Interface())))
+			keys = append(keys, key.Unique(tx.meta.Name, f.Name, toString(v.FieldByName(f.Name).Interface())))
 		case SecondaryIndex:
-			keys = append(keys, key.Index(tx.meta.Name, n, toString(v.FieldByName(n).Interface()), id))
+			keys = append(keys, key.Index(tx.meta.Name, f.Name, toString(v.FieldByName(f.Name).Interface()), id))
 		}
 	}
 	return keys, nil
@@ -244,7 +244,7 @@ func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
 			zap.Duration("elapsed", time.Now().Sub(st)),
 		)
 	}()
-	f, ok := tx.meta.Fields[fieldName]
+	f, ok := tx.meta.getFieldByName(fieldName)
 	if !ok {
 		return 0, errors.Errorf("invalid field name: %#v", fieldName)
 	}
@@ -252,7 +252,7 @@ func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
 	pks := make([]string, 0)
 
 	// get the primary key of the item(s) being deleted
-	switch f.Type() {
+	switch f.indexType() {
 	case PrimaryKey:
 		pks = append(pks, key.ID(tx.meta.Name, k))
 	case UniqueIndex:
