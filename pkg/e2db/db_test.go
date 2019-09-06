@@ -218,3 +218,106 @@ func TestUpdate(t *testing.T) {
 		t.Errorf("e2db: after Update differs: (-want +got)\n%s", diff)
 	}
 }
+
+func TestNestedFieldQuery(t *testing.T) {
+	type Nested struct {
+		Name        string `e2db:"unique"`
+		Other       int
+		MaskedIndex string
+		Masked      string `e2db:"index"`
+	}
+	type Model struct {
+		ID int `e2db:"increment"`
+		Nested
+		Email       string `e2db:"index"`
+		MaskedIndex string `e2db:"index"`
+		Masked      string
+	}
+
+	table := db.Table(&Model{})
+	defer table.Drop()
+
+	rows := []*Model{
+		{
+			Nested: Nested{
+				Name:  "Steve",
+				Other: 42,
+			},
+			Email: "steve@mail.org",
+		},
+		{
+			Nested: Nested{
+				Name:  "Smoot",
+				Other: 666,
+			},
+			Email: "smoot@wellington.me",
+		},
+		{
+			Nested: Nested{
+				Name:        "Jim",
+				Masked:      "test",
+				MaskedIndex: "indexed",
+			},
+			Email:       "mail@themask.movie",
+			Masked:      "real value",
+			MaskedIndex: "real indexed value",
+		},
+	}
+
+	for _, row := range rows {
+		if err := table.Insert(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cases := []struct {
+		name     string
+		field    string
+		value    interface{}
+		expected int64
+		err      error
+	}{
+		{
+			name:     "count nested field",
+			field:    "Name",
+			value:    "Smoot",
+			expected: 1,
+		},
+		{
+			name:  "masked field",
+			field: "Masked",
+			value: "test",
+			err:   ErrNotIndexed,
+		},
+		{
+			name:  "masked field real value",
+			field: "Masked",
+			value: "real value",
+			err:   ErrNotIndexed,
+		},
+		{
+			name:     "masked index",
+			field:    "MaskedIndex",
+			value:    "indexed",
+			expected: 0,
+		},
+		{
+			name:     "masked index real value",
+			field:    "MaskedIndex",
+			value:    "real indexed value",
+			expected: 1,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			n, err := table.Count(c.field, c.value)
+			if errors.Cause(c.err) != errors.Cause(err) {
+				t.Fatalf("expected error %v, got %v", c.err, err)
+			}
+			if c.expected != n {
+				t.Fatalf("expected %d result(s), got %d", c.expected, n)
+			}
+		})
+	}
+}

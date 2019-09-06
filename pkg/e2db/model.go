@@ -1,6 +1,7 @@
 package e2db
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -86,20 +87,21 @@ type ModelDef struct {
 	t reflect.Type
 }
 
-func NewModelDef(t reflect.Type) *ModelDef {
+func readFields(t reflect.Type) map[string]*FieldDef {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 	if t.NumField() == 0 {
 		panic("must have at least 1 struct field")
 	}
-	m := &ModelDef{
-		Name:   t.Name(),
-		Fields: make(map[string]*FieldDef),
-		t:      t,
-	}
+	fields := make(map[string]*FieldDef)
+	anon := make([]reflect.StructField, 0)
 	for i := 0; i < t.NumField(); i++ {
 		ft := t.Field(i)
+		if ft.Anonymous && ft.Type.Kind() != reflect.Interface {
+			anon = append(anon, ft)
+			continue
+		}
 		tags := make([]*Tag, 0)
 		if tagValue, ok := ft.Tag.Lookup("e2db"); ok {
 			for _, t := range strings.Split(tagValue, ",") {
@@ -111,10 +113,40 @@ func NewModelDef(t reflect.Type) *ModelDef {
 				}
 			}
 		}
-		m.Fields[ft.Name] = &FieldDef{
+		fields[ft.Name] = &FieldDef{
 			Name: ft.Name,
 			Tags: tags,
 		}
+	}
+
+	// Process anonymous/embedded struct fields in a second pass to allow parent
+	// fields to supersede the embedded struct fields.
+	for _, ft := range anon {
+		for n, f := range readFields(ft.Type) {
+			if _, ok := fields[n]; ok {
+				// Field is superseded in parent struct, ignore.
+				continue
+			}
+			if _, ok := t.FieldByName(n); !ok {
+				panic(fmt.Sprintf("struct field in type %v is ambiguous: %q", t, n))
+			}
+			fields[n] = f
+		}
+	}
+	return fields
+}
+
+func NewModelDef(t reflect.Type) *ModelDef {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.NumField() == 0 {
+		panic("must have at least 1 struct field")
+	}
+	m := &ModelDef{
+		Name:   t.Name(),
+		Fields: readFields(t),
+		t:      t,
 	}
 	return m
 }
