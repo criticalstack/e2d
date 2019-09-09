@@ -28,6 +28,30 @@ func fieldMap(ff ...*e2db.FieldDef) map[string]*e2db.FieldDef {
 	return m
 }
 
+func TestNewModelDefUnboundedRecursion(t *testing.T) {
+	type testModel struct {
+		ID          string `e2db:"id"`
+		Name        string `e2db:"unique"`
+		Age         int
+		favoriteNum int
+		*testModel
+	}
+
+	expected := &e2db.ModelDef{
+		Name: "testModel",
+		Fields: fieldMap(
+			field("Age"),
+			field("ID", "id"),
+			field("Name", "unique"),
+			field("favoriteNum"),
+		),
+	}
+	def := e2db.NewModelDef(reflect.TypeOf(new(testModel)))
+	if diff := cmp.Diff(expected, def, cmpopts.IgnoreUnexported(e2db.ModelDef{})); diff != "" {
+		t.Fatalf("ModelDef did not match expected: %v", diff)
+	}
+}
+
 func TestNewModelDef(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -53,6 +77,28 @@ func TestNewModelDef(t *testing.T) {
 					field("ID", "id"),
 					field("Name", "unique"),
 					field("favoriteNum"),
+				),
+			},
+		},
+		{
+			name: "embedded not struct",
+			model: func() reflect.Type {
+				type nest int
+				type testModelNested struct {
+					ID          string `e2db:"id"`
+					Age         int
+					favoriteNum int
+					nest
+				}
+				return reflect.TypeOf(new(testModelNested))
+			},
+			expected: &e2db.ModelDef{
+				Name: "testModelNested",
+				Fields: fieldMap(
+					field("Age"),
+					field("ID", "id"),
+					field("favoriteNum"),
+					field("nest"),
 				),
 			},
 		},
