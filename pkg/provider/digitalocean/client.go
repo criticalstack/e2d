@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/criticalstack/e2d/pkg/netutil"
 	meta "github.com/digitalocean/go-metadata"
 	"github.com/digitalocean/godo"
 	"golang.org/x/oauth2"
@@ -51,6 +52,9 @@ func NewClient(cfg *Config) (*Client, error) {
 
 func (c *Client) GetAddrs(ctx context.Context) ([]string, error) {
 	metadata, err := meta.NewClient().Metadata()
+	if err != nil {
+		return nil, err
+	}
 	filter := ""
 	for _, t := range metadata.Tags {
 		if strings.HasPrefix(t, tagPrefix) {
@@ -69,6 +73,9 @@ func (c *Client) GetAddrs(ctx context.Context) ([]string, error) {
 		addr, err := d.PrivateIPv4()
 		if err != nil {
 			return nil, err
+		}
+		if !netutil.IsRoutableIPv4(addr) {
+			continue
 		}
 		addrs = append(addrs, addr)
 	}
