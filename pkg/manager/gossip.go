@@ -244,6 +244,13 @@ func (m *msg) Invalidates(other memberlist.Broadcast) bool { return false }
 func (m *msg) Message() []byte                             { return m.data }
 func (m *msg) Finished()                                   {}
 
+type statusMsg struct {
+	Name   string
+	Status NodeStatus
+}
+
+// Update uses the provided NodeStatus to updates the node metadata and
+// broadcast the updated NodeStatus to all currently known members.
 func (g *gossip) Update(status NodeStatus) error {
 	g.mu.Lock()
 	g.nodes[g.self.Name] = status
@@ -254,15 +261,8 @@ func (g *gossip) Update(status NodeStatus) error {
 		return err
 	}
 	g.m.LocalNode().Meta = data
-	n := struct {
-		Name   string
-		Status NodeStatus
-	}{
-		Name:   g.self.Name,
-		Status: status,
-	}
 	var b bytes.Buffer
-	if err := gob.NewEncoder(&b).Encode(n); err != nil {
+	if err := gob.NewEncoder(&b).Encode(statusMsg{Name: g.self.Name, Status: status}); err != nil {
 		return err
 	}
 	g.broadcasts.QueueBroadcast(&msg{b.Bytes()})
@@ -327,10 +327,7 @@ func (g *gossip) NotifyMsg(data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	var n struct {
-		Name   string
-		Status NodeStatus
-	}
+	var n statusMsg
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&n); err != nil {
 		log.Debugf("cannot unmarshal: %v", err)
 		return

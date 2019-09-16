@@ -316,10 +316,8 @@ func (m *Manager) startOrJoinEtcdCluster() error {
 			if len(m.gossip.Members()) < m.cfg.RequiredClusterSize {
 				continue
 			}
-			if m.gossip.self.Status != Pending {
-				if err := m.gossip.Update(Pending); err != nil {
-					log.Debugf("[%v]: cannot update member metadata: %v", shortName(m.cfg.Name), err)
-				}
+			if err := m.gossip.Update(Pending); err != nil {
+				log.Debugf("[%v]: cannot update member metadata: %v", shortName(m.cfg.Name), err)
 			}
 
 			// when enough members are reporting in as pending, it means that a
