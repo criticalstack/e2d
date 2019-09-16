@@ -188,7 +188,11 @@ func newFileSnapshotter(path string) *snapshot.FileSnapshotter {
 var testLong = flag.Bool("test.long", false, "enable running larger tests")
 
 func init() {
-	flag.Parse()
+	for _, arg := range os.Args[1:] {
+		if arg == "-test.long" {
+			*testLong = true
+		}
+	}
 	log.SetLevel(zapcore.DebugLevel)
 }
 
