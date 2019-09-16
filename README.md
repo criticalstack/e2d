@@ -1,5 +1,8 @@
 # e2d
 
+[![GoDoc](https://godoc.org/github.com/criticalstack/e2d?status.svg)](https://godoc.org/github.com/criticalstack/e2d)
+[![Build Status](https://cloud.drone.io/api/badges/criticalstack/e2d/status.svg)](https://cloud.drone.io/criticalstack/e2d)
+
 e2d is a command-line tool for deploying and managing etcd clusters, both in the cloud or on bare-metal. It also includes [e2db](https://github.com/criticalstack/e2d/tree/master/pkg/e2db), an ORM-like abstraction for working with etcd.
 
 ## Table of Contents
