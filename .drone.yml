@@ -1,0 +1,24 @@
+workspace:
+  base: /go
+  path: github.com/criticalstack/e2d
+
+clone:
+  git:
+    image: plugins/git
+    depth: 1
+    tags: true
+
+pipeline:
+  testing:
+    image: golang:latest
+    commands:
+    - make test
+
+  release:
+    when:
+      event:
+        - tag
+    image: golang:latest
+    secrets: [github_token]
+    commands:
+      - curl -sL https://git.io/goreleaser | bash
