@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/s3manager"
+	"github.com/criticalstack/e2d/pkg/netutil"
 )
 
 type Config struct {
@@ -77,6 +78,9 @@ func (c *Client) GetAddrs(ctx context.Context) ([]string, error) {
 		addr, err := c.describeInstanceIPAddress(ctx, i)
 		if err != nil {
 			return nil, err
+		}
+		if !netutil.IsRoutableIPv4(addr) {
+			continue
 		}
 		addrs = append(addrs, addr)
 	}

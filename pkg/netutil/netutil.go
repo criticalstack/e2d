@@ -8,6 +8,16 @@ import (
 	"github.com/pkg/errors"
 )
 
+// IsRoutableIP checks that the passed string can be parsed in to a valid IPv4
+// address, and that it is not a loopback or unspecified address that would not be
+// reachable outside of that host device.
+func IsRoutableIPv4(s string) bool {
+	if ip := net.ParseIP(s); ip.To4() != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+		return true
+	}
+	return false
+}
+
 // DetectHostIPv4 attempts to determine the host IPv4 address by finding the
 // first non-loopback device with an assigned IPv4 address.
 func DetectHostIPv4() (string, error) {
