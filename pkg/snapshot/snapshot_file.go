@@ -8,11 +8,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type SnapshotProvider interface {
-	Load() (io.ReadCloser, error)
-	Save(io.ReadCloser) error
-}
-
 type FileSnapshotter struct {
 	file string
 }

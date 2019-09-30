@@ -2,25 +2,25 @@ package app
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-var RootCmd = &cobra.Command{
-	Use:   "e2d",
-	Short: "etcd manager",
+var globalOptions struct {
+	verbose bool
 }
 
-func init() {
-	RootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose log output (debug)")
-	viper.BindPFlags(RootCmd.PersistentFlags())
-	RootCmd.AddCommand(
-		completionCmd,
-		runCmd,
-		pkiCmd,
-		versionCmd,
+func NewRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "e2d",
+		Short: "etcd manager",
+	}
+	cmd.PersistentFlags().BoolVarP(&globalOptions.verbose, "verbose", "v", false, "verbose log output (debug)")
+
+	cmd.AddCommand(
+		newCompletionCmd(cmd),
+		newRunCmd(),
+		newPKICmd(),
+		newVersionCmd(),
 	)
-}
 
-func Execute() error {
-	return RootCmd.Execute()
+	return cmd
 }

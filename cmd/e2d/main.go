@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	if err := app.Execute(); err != nil {
+	if err := app.NewRootCmd().Execute(); err != nil {
 		log.Fatal(err)
 	}
 }

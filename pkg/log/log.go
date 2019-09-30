@@ -15,7 +15,7 @@ var (
 		NewEncoder(NewDefaultEncoderConfig()),
 		zapcore.AddSync(os.Stderr),
 		level,
-	), zap.AddCaller())
+	), zap.AddCaller(), zap.AddCallerSkip(1))
 )
 
 // NewLogger creates a new child logger with the provided namespace.

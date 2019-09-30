@@ -11,35 +11,140 @@ import (
 	"github.com/criticalstack/e2d/pkg/netutil"
 	"github.com/criticalstack/e2d/pkg/pki"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-var pkiCmd = &cobra.Command{
-	Use:   "pki",
-	Short: "manage e2d pki",
+type pkiOptions struct {
+	CACert string
+	CAKey  string
 }
 
-var pkiInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "initialize a new CA",
-	Run: func(cmd *cobra.Command, args []string) {
-		path := filepath.Dir(viper.GetString("pki-ca-cert"))
-		if path != "" {
-			if err := os.MkdirAll(path, 0755); err != nil && !os.IsExist(err) {
+func newPKICmd() *cobra.Command {
+	o := &pkiOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "pki",
+		Short: "manage e2d pki",
+	}
+
+	cmd.PersistentFlags().StringVar(&o.CACert, "ca-cert", "", "")
+	cmd.PersistentFlags().StringVar(&o.CAKey, "ca-key", "", "")
+
+	cmd.AddCommand(
+		newPKIInitCmd(o),
+		newPKIGenCertsCmd(o),
+	)
+	return cmd
+}
+
+func newPKIInitCmd(pkiOpts *pkiOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "initialize a new CA",
+		Run: func(cmd *cobra.Command, args []string) {
+			path := filepath.Dir(pkiOpts.CACert)
+			if path != "" {
+				if err := os.MkdirAll(path, 0755); err != nil && !os.IsExist(err) {
+					log.Fatal(err)
+				}
+			}
+			r, err := pki.NewDefaultRootCA()
+			if err != nil {
 				log.Fatal(err)
 			}
+			if err := writeFile(pkiOpts.CACert, r.CA.CertPEM, 0644); err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(pkiOpts.CAKey, r.CA.KeyPEM, 0600); err != nil {
+				log.Fatal(err)
+			}
+		},
+	}
+	return cmd
+}
+
+type pkiGenCertsOptions struct {
+	Hosts     string
+	OutputDir string
+}
+
+func newPKIGenCertsCmd(pkiOpts *pkiOptions) *cobra.Command {
+	o := pkiGenCertsOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "gencerts",
+		Short: "generate certificates/private keys",
+		Run: func(cmd *cobra.Command, args []string) {
+			var hosts []string
+			if o.Hosts != "" {
+				hosts = strings.Split(o.Hosts, ",")
+			}
+			r, err := pki.NewRootCAFromFile(pkiOpts.CACert, pkiOpts.CAKey)
+			if err != nil {
+				log.Fatal(err)
+			}
+			hostIP, err := netutil.DetectHostIPv4()
+			if err != nil {
+				log.Fatal(err)
+			}
+			if o.OutputDir != "" {
+				if err := os.MkdirAll(o.OutputDir, 0755); err != nil && !os.IsExist(err) {
+					log.Fatal(err)
+				}
+			}
+			hosts = appendHosts(hosts, "127.0.0.1", hostIP)
+			certs, err := r.GenerateCertificates(pki.ServerSigningProfile, newCertificateRequest("etcd server", hosts...))
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(filepath.Join(o.OutputDir, "server.crt"), certs.CertPEM, 0644); err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(filepath.Join(o.OutputDir, "server.key"), certs.KeyPEM, 0600); err != nil {
+				log.Fatal(err)
+			}
+			certs, err = r.GenerateCertificates(pki.PeerSigningProfile, newCertificateRequest("etcd peer", hosts...))
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(filepath.Join(o.OutputDir, "peer.crt"), certs.CertPEM, 0644); err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(filepath.Join(o.OutputDir, "peer.key"), certs.KeyPEM, 0600); err != nil {
+				log.Fatal(err)
+			}
+			certs, err = r.GenerateCertificates(pki.ClientSigningProfile, newCertificateRequest("etcd client"))
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(filepath.Join(o.OutputDir, "client.crt"), certs.CertPEM, 0644); err != nil {
+				log.Fatal(err)
+			}
+			if err := writeFile(filepath.Join(o.OutputDir, "client.key"), certs.KeyPEM, 0600); err != nil {
+				log.Fatal(err)
+			}
+			log.Info("generated certificates successfully.")
+		},
+	}
+
+	cmd.Flags().StringVar(&o.Hosts, "hosts", "", "")
+	cmd.Flags().StringVar(&o.OutputDir, "output-dir", "", "")
+
+	return cmd
+}
+
+func appendHosts(hosts []string, newHosts ...string) []string {
+	for _, newHost := range newHosts {
+		if newHost == "" {
+			continue
 		}
-		r, err := pki.NewDefaultRootCA()
-		if err != nil {
-			log.Fatal(err)
+		for _, host := range hosts {
+			if newHost == host {
+				continue
+			}
 		}
-		if err := writeFile(viper.GetString("pki-ca-cert"), r.CA.CertPEM, 0644); err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(viper.GetString("pki-ca-key"), r.CA.KeyPEM, 0600); err != nil {
-			log.Fatal(err)
-		}
-	},
+		hosts = append(hosts, newHost)
+	}
+	return hosts
 }
 
 func newCertificateRequest(commonName string, hosts ...string) *csr.CertificateRequest {
@@ -65,74 +170,4 @@ func writeFile(filename string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return ioutil.WriteFile(filename, data, perm)
-}
-
-var pkiGenCertsCmd = &cobra.Command{
-	Use:   "gencerts",
-	Short: "generate certificates/private keys",
-	Run: func(cmd *cobra.Command, args []string) {
-		var hosts []string
-		if viper.GetString("hosts") != "" {
-			hosts = strings.Split(viper.GetString("hosts"), ",")
-		}
-		r, err := pki.NewRootCAFromFile(viper.GetString("pki-ca-cert"), viper.GetString("pki-ca-key"))
-		if err != nil {
-			log.Fatal(err)
-		}
-		hostIP, err := netutil.DetectHostIPv4()
-		if err != nil {
-			log.Fatal(err)
-		}
-		if viper.GetString("output-dir") != "" {
-			if err := os.MkdirAll(viper.GetString("output-dir"), 0755); err != nil && !os.IsExist(err) {
-				log.Fatal(err)
-			}
-		}
-		hosts = append([]string{"127.0.0.1", hostIP}, hosts...)
-		certs, err := r.GenerateCertificates(pki.ServerSigningProfile, newCertificateRequest("etcd server", hosts...))
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(filepath.Join(viper.GetString("output-dir"), "server.crt"), certs.CertPEM, 0644); err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(filepath.Join(viper.GetString("output-dir"), "server.key"), certs.KeyPEM, 0600); err != nil {
-			log.Fatal(err)
-		}
-		certs, err = r.GenerateCertificates(pki.PeerSigningProfile, newCertificateRequest("etcd peer", hosts...))
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(filepath.Join(viper.GetString("output-dir"), "peer.crt"), certs.CertPEM, 0644); err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(filepath.Join(viper.GetString("output-dir"), "peer.key"), certs.KeyPEM, 0600); err != nil {
-			log.Fatal(err)
-		}
-		certs, err = r.GenerateCertificates(pki.ClientSigningProfile, newCertificateRequest("etcd client"))
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(filepath.Join(viper.GetString("output-dir"), "client.crt"), certs.CertPEM, 0644); err != nil {
-			log.Fatal(err)
-		}
-		if err := writeFile(filepath.Join(viper.GetString("output-dir"), "client.key"), certs.KeyPEM, 0600); err != nil {
-			log.Fatal(err)
-		}
-		log.Info("generated certificates successfully.")
-	},
-}
-
-func init() {
-	pkiCmd.PersistentFlags().String("ca-cert", "", "")
-	pkiCmd.PersistentFlags().String("ca-key", "", "")
-	viper.BindPFlag("pki-ca-cert", pkiCmd.PersistentFlags().Lookup("ca-cert"))
-	viper.BindPFlag("pki-ca-key", pkiCmd.PersistentFlags().Lookup("ca-key"))
-
-	pkiGenCertsCmd.Flags().String("hosts", "", "")
-	pkiGenCertsCmd.Flags().String("output-dir", "", "")
-	viper.BindPFlag("hosts", pkiGenCertsCmd.Flags().Lookup("hosts"))
-	viper.BindPFlag("output-dir", pkiGenCertsCmd.Flags().Lookup("output-dir"))
-
-	pkiCmd.AddCommand(pkiInitCmd, pkiGenCertsCmd)
 }
