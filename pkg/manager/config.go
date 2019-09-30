@@ -70,9 +70,6 @@ type Config struct {
 	// amount of time to attempt bootstrapping before failing
 	BootstrapTimeout time.Duration
 
-	// identifies a cloud provider to be used for peer discovery
-	CloudProvider string `mapstructure:"cloud_provider"`
-
 	// interval for creating etcd snapshots
 	SnapshotInterval time.Duration
 
@@ -94,8 +91,8 @@ type Config struct {
 	// configures the level of the logger used by etcd
 	EtcdLogLevel zapcore.Level
 
-	discovery.PeerProvider
-	snapshot.SnapshotProvider
+	discovery.PeerGetter
+	snapshot.Snapshotter
 
 	Debug bool
 }

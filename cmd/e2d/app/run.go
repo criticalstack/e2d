@@ -3,176 +3,241 @@ package app
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/cmdutil"
 	"github.com/criticalstack/e2d/pkg/discovery"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/manager"
-	"github.com/criticalstack/e2d/pkg/provider/aws"
-	do "github.com/criticalstack/e2d/pkg/provider/digitalocean"
 	"github.com/criticalstack/e2d/pkg/snapshot"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap"
 )
 
-var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "start a managed etcd instance",
-	Run: func(cmd *cobra.Command, args []string) {
-		log.SetLevel(zapcore.DebugLevel)
+type runOptions struct {
+	Name       string `env:"E2D_NAME"`
+	DataDir    string `env:"E2D_DATA_DIR"`
+	Host       string `env:"E2D_HOST"`
+	ClientAddr string `env:"E2D_CLIENT_ADDR"`
+	PeerAddr   string `env:"E2D_PEER_ADDR"`
+	GossipAddr string `env:"E2D_GOSSIP_ADDR"`
 
-		var peerProvider discovery.PeerProvider
-		var err error
-		switch strings.ToLower(viper.GetString("provider")) {
-		case "aws":
-			peerProvider, err = aws.NewClient(&aws.Config{})
-			if err != nil {
-				log.Fatal(err)
-			}
-		case "do", "digitalocean":
-			log.Debug(viper.GetString("digitalocean-api-token"))
-			peerProvider, err = do.NewClient(&do.Config{
-				AccessToken: viper.GetString("digitalocean-api-token"),
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-		default:
-			peerProvider = &discovery.NoopProvider{}
-		}
+	CACert     string `env:"E2D_CA_CERT"`
+	PeerCert   string `env:"E2D_PEER_CERT"`
+	PeerKey    string `env:"E2D_PEER_KEY"`
+	ServerCert string `env:"E2D_SERVER_CERT"`
+	ServerKey  string `env:"E2D_SERVER_KEY"`
 
-		baddrs := make([]string, 0)
+	BootstrapAddrs      string `env:"E2D_BOOTSTRAP_ADDRS"`
+	RequiredClusterSize int    `env:"E2D_REQUIRED_CLUSTER_SIZE"`
 
-		// user-provided bootstrap addresses take precedence
-		if viper.GetString("bootstrap-addrs") != "" {
-			baddrs = strings.Split(viper.GetString("bootstrap-addrs"), ",")
-		}
+	HealthCheckInterval time.Duration `env:"E2D_HEALTH_CHECK_INTERVAL"`
+	HealthCheckTimeout  time.Duration `env:"E2D_HEALTH_CHECK_TIMEOUT"`
 
-		if viper.GetInt("required-cluster-size") > 1 && len(baddrs) == 0 {
-			addrs, err := peerProvider.GetAddrs(context.Background())
-			if err != nil {
-				log.Fatal(err)
-			}
-			log.Debugf("cloud provided addresses: %v", addrs)
-			for _, addr := range addrs {
-				baddrs = append(baddrs, fmt.Sprintf("%s:%d", addr, manager.DefaultGossipPort))
-			}
-			log.Debugf("bootstrap addrs: %v", baddrs)
-			if len(baddrs) == 0 {
-				log.Fatal("bootstrap addresses must be provided")
-			}
-		}
+	PeerDiscovery string `env:"E2D_PEER_DISCOVERY"`
 
-		var snapshotProvider snapshot.SnapshotProvider
-		snapURL := viper.GetString("snapshot-backup-url")
-		if snapURL != "" {
-			providerType, bucket := snapshot.ParseSnapshotBackupURL(snapURL)
-			if providerType == "" {
-				log.Fatalf("error parsing backup url %s (is it a full URL like s3://abc?)", snapURL)
-			}
+	SnapshotBackupURL   string        `env:"E2D_SNAPSHOT_BACKUP_URL"`
+	SnapshotCompression bool          `env:"E2D_SNAPSHOT_COMPRESSION"`
+	SnapshotInterval    time.Duration `env:"E2D_SNAPSHOT_INTERVAL"`
 
-			switch providerType {
-			case snapshot.FileProviderType:
-				var err error
-				snapshotProvider, err = snapshot.NewFileSnapshotter(bucket)
-				if err != nil {
-					log.Fatal(err)
-				}
-			case snapshot.S3ProviderType:
-				var err error
-				snapshotProvider, err = snapshot.NewAWSSnapshotter(&aws.Config{
-					BucketName:      bucket,
-					RoleSessionName: viper.GetString("aws-role-session-name"),
-				})
-				if err != nil {
-					log.Fatal(err)
-				}
-			case snapshot.SpacesProviderType:
-				u, err := url.Parse(snapURL)
-				if err != nil {
-					log.Fatal(err)
-				}
-				snapshotProvider, err = snapshot.NewDigitalOceanSnapshotter(&do.Config{
-					SpacesURL:       u.Host,
-					SpacesAccessKey: viper.GetString("digitalocean-spaces-key"),
-					SpacesSecretKey: viper.GetString("digitalocean-spaces-secret"),
-					SpaceName:       bucket,
-				})
-				if err != nil {
-					log.Fatal(err)
-				}
-			default:
-				log.Fatalf("unsupported snapshot url format: %#v", snapURL)
-			}
-		}
+	AWSAccessKey       string `env:"E2D_AWS_ACCESS_KEY"`
+	AWSSecretKey       string `env:"E2D_AWS_SECRET_KEY"`
+	AWSRoleSessionName string `env:"E2D_AWS_ROLE_SESSION_NAME"`
 
-		m, err := manager.New(&manager.Config{
-			Name:                viper.GetString("name"),
-			Dir:                 viper.GetString("data-dir"),
-			Host:                viper.GetString("host"),
-			ClientAddr:          viper.GetString("client-addr"),
-			PeerAddr:            viper.GetString("peer-addr"),
-			GossipAddr:          viper.GetString("gossip-addr"),
-			BootstrapAddrs:      baddrs,
-			RequiredClusterSize: viper.GetInt("required-cluster-size"),
-			CloudProvider:       viper.GetString("provider"),
-			SnapshotInterval:    viper.GetDuration("snapshot-interval"),
-			SnapshotCompression: viper.GetBool("snapshot-compression"),
-			HealthCheckInterval: viper.GetDuration("healthcheck-interval"),
-			HealthCheckTimeout:  viper.GetDuration("healthcheck-timeout"),
-			ClientSecurity: client.SecurityConfig{
-				CertFile:      viper.GetString("server-cert"),
-				KeyFile:       viper.GetString("server-key"),
-				TrustedCAFile: viper.GetString("ca-cert"),
-			},
-			PeerSecurity: client.SecurityConfig{
-				CertFile:      viper.GetString("peer-cert"),
-				KeyFile:       viper.GetString("peer-key"),
-				TrustedCAFile: viper.GetString("ca-cert"),
-			},
-			PeerProvider:     peerProvider,
-			SnapshotProvider: snapshotProvider,
-			Debug:            viper.GetBool("verbose"),
-		})
-		if err != nil {
-			log.Fatalf("%+v", err)
-		}
-		if err := m.Run(); err != nil {
-			log.Fatalf("%+v", err)
-		}
-	},
+	DOAccessToken  string `env:"E2D_DO_ACCESS_TOKEN"`
+	DOSpacesKey    string `env:"E2D_DO_SPACES_KEY"`
+	DOSpacesSecret string `env:"E2D_DO_SPACES_SECRET"`
 }
 
-func init() {
-	runCmd.Flags().String("name", "", "specify a name for the node")
-	runCmd.Flags().String("data-dir", "", "etcd data-dir")
-	runCmd.Flags().String("ca-cert", "", "etcd trusted ca certificate")
-	runCmd.Flags().String("server-cert", "", "etcd server certificate")
-	runCmd.Flags().String("server-key", "", "etcd server private key")
-	runCmd.Flags().String("peer-cert", "", "etcd peer certificate")
-	runCmd.Flags().String("peer-key", "", "etcd peer private key")
-	runCmd.Flags().String("host", "", "host IPv4")
-	runCmd.Flags().String("client-addr", "0.0.0.0:2379", "etcd client addrress")
-	runCmd.Flags().String("peer-addr", "0.0.0.0:2380", "etcd peer addrress")
-	runCmd.Flags().String("gossip-addr", "0.0.0.0:7980", "gossip address")
-	runCmd.Flags().String("bootstrap-addrs", "", "initial addresses used for node discovery")
-	runCmd.Flags().IntP("required-cluster-size", "n", 1, "size of the etcd cluster should be {1,3,5}")
-	runCmd.Flags().String("provider", "", "cloud provider")
-	runCmd.Flags().String("digitalocean-api-token", "", "provider authentication token")
-	runCmd.Flags().String("digitalocean-spaces-key", "", "provider authentication token")
-	runCmd.Flags().String("digitalocean-spaces-secret", "", "provider authentication token")
-	runCmd.Flags().Duration("snapshot-interval", 1*time.Minute, "frequency of etcd snapshots")
-	runCmd.Flags().String("snapshot-backup-url", "", "an absolute path to shared filesystem storage (like file:///etcd-backups) or cloud storage bucket (like s3://etcd-backups) for snapshot backups")
-	runCmd.Flags().Bool("snapshot-compression", false, "compression snapshots with gzip")
-	runCmd.Flags().String("aws-role-session-name", "", "")
-	runCmd.Flags().Duration("healthcheck-interval", 1*time.Minute, "")
-	runCmd.Flags().Duration("healthcheck-timeout", 5*time.Minute, "")
-	viper.BindPFlags(runCmd.Flags())
-	viper.SetEnvPrefix("e2d")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
+func newRunCmd() *cobra.Command {
+	o := &runOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "start a managed etcd instance",
+		Run: func(cmd *cobra.Command, args []string) {
+			peerGetter, err := getPeerGetter(o)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			baddrs, err := getInitialBootstrapAddrs(o, peerGetter)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			snapshotter, err := getSnapshotProvider(o)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			m, err := manager.New(&manager.Config{
+				Name:                o.Name,
+				Dir:                 o.DataDir,
+				Host:                o.Host,
+				ClientAddr:          o.ClientAddr,
+				PeerAddr:            o.PeerAddr,
+				GossipAddr:          o.GossipAddr,
+				BootstrapAddrs:      baddrs,
+				RequiredClusterSize: o.RequiredClusterSize,
+				SnapshotInterval:    o.SnapshotInterval,
+				SnapshotCompression: o.SnapshotCompression,
+				HealthCheckInterval: o.HealthCheckInterval,
+				HealthCheckTimeout:  o.HealthCheckTimeout,
+				ClientSecurity: client.SecurityConfig{
+					CertFile:      o.ServerCert,
+					KeyFile:       o.ServerKey,
+					TrustedCAFile: o.CACert,
+				},
+				PeerSecurity: client.SecurityConfig{
+					CertFile:      o.PeerCert,
+					KeyFile:       o.PeerKey,
+					TrustedCAFile: o.CACert,
+				},
+				PeerGetter:  peerGetter,
+				Snapshotter: snapshotter,
+				Debug:       globalOptions.verbose,
+			})
+			if err != nil {
+				log.Fatalf("%+v", err)
+			}
+			if err := m.Run(); err != nil {
+				log.Fatalf("%+v", err)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&o.Name, "name", "", "specify a name for the node")
+	cmd.Flags().StringVar(&o.DataDir, "data-dir", "", "etcd data-dir")
+	cmd.Flags().StringVar(&o.Host, "host", "", "host IPv4")
+	cmd.Flags().StringVar(&o.ClientAddr, "client-addr", "0.0.0.0:2379", "etcd client addrress")
+	cmd.Flags().StringVar(&o.PeerAddr, "peer-addr", "0.0.0.0:2380", "etcd peer addrress")
+	cmd.Flags().StringVar(&o.GossipAddr, "gossip-addr", "0.0.0.0:7980", "gossip address")
+
+	cmd.Flags().StringVar(&o.CACert, "ca-cert", "", "etcd trusted ca certificate")
+	cmd.Flags().StringVar(&o.PeerCert, "peer-cert", "", "etcd peer certificate")
+	cmd.Flags().StringVar(&o.PeerKey, "peer-key", "", "etcd peer private key")
+	cmd.Flags().StringVar(&o.ServerCert, "server-cert", "", "etcd server certificate")
+	cmd.Flags().StringVar(&o.ServerKey, "server-key", "", "etcd server private key")
+
+	cmd.Flags().StringVar(&o.BootstrapAddrs, "bootstrap-addrs", "", "initial addresses used for node discovery")
+	cmd.Flags().IntVarP(&o.RequiredClusterSize, "required-cluster-size", "n", 1, "size of the etcd cluster should be {1,3,5}")
+
+	cmd.Flags().DurationVar(&o.HealthCheckInterval, "health-check-interval", 1*time.Minute, "")
+	cmd.Flags().DurationVar(&o.HealthCheckTimeout, "health-check-timeout", 5*time.Minute, "")
+
+	cmd.Flags().StringVar(&o.PeerDiscovery, "peer-discovery", "", "")
+
+	cmd.Flags().DurationVar(&o.SnapshotInterval, "snapshot-interval", 1*time.Minute, "frequency of etcd snapshots")
+	cmd.Flags().StringVar(&o.SnapshotBackupURL, "snapshot-backup-url", "", "an absolute path to shared filesystem storage (like file:///etcd-backups) or cloud storage bucket (like s3://etcd-backups) for snapshot backups")
+	cmd.Flags().BoolVar(&o.SnapshotCompression, "snapshot-compression", false, "compression snapshots with gzip")
+
+	cmd.Flags().StringVar(&o.AWSAccessKey, "aws-access-key", "", "")
+	cmd.Flags().StringVar(&o.AWSSecretKey, "aws-secret-key", "", "")
+	cmd.Flags().StringVar(&o.AWSRoleSessionName, "aws-role-session-name", "", "")
+
+	cmd.Flags().StringVar(&o.DOAccessToken, "do-access-token", "", "DigitalOcean personal access token")
+	cmd.Flags().StringVar(&o.DOSpacesKey, "do-spaces-key", "", "DigitalOcean spaces access key")
+	cmd.Flags().StringVar(&o.DOSpacesSecret, "do-spaces-secret", "", "DigitalOcean spaces secret")
+	cmdutil.SetEnvs(o)
+
+	return cmd
+}
+
+func parsePeerDiscovery(s string) (string, []discovery.KeyValue) {
+	kvs := make([]discovery.KeyValue, 0)
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return s, kvs
+	}
+	pairs := strings.Split(parts[1], ",")
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, "=", 2)
+		switch len(parts) {
+		case 1:
+			kvs = append(kvs, discovery.KeyValue{parts[0], ""})
+		case 2:
+			kvs = append(kvs, discovery.KeyValue{parts[0], parts[1]})
+		}
+	}
+	return parts[0], kvs
+}
+
+func getPeerGetter(o *runOptions) (discovery.PeerGetter, error) {
+	method, kvs := parsePeerDiscovery(o.PeerDiscovery)
+	log.Info("peer-discovery", zap.String("method", method), zap.String("kvs", fmt.Sprintf("%v", kvs)))
+	switch strings.ToLower(method) {
+	case "aws-autoscaling-group":
+		// TODO(chris): needs to take access key/secret
+		return discovery.NewAmazonAutoScalingPeerGetter()
+	case "ec2-tags":
+		return discovery.NewAmazonInstanceTagPeerGetter(kvs)
+	case "do-tags":
+		if len(kvs) == 0 {
+			return nil, errors.New("must provide at least 1 tag")
+		}
+		return discovery.NewDigitalOceanPeerGetter(&discovery.DigitalOceanConfig{
+			AccessToken: o.DOAccessToken,
+			TagValue:    kvs[0].Key,
+		})
+	case "k8s-labels":
+		return nil, errors.New("peer getter not yet implemented")
+	}
+	return &discovery.NoopGetter{}, nil
+}
+
+func getInitialBootstrapAddrs(o *runOptions, peerGetter discovery.PeerGetter) ([]string, error) {
+	baddrs := make([]string, 0)
+
+	// user-provided bootstrap addresses take precedence
+	if o.BootstrapAddrs != "" {
+		baddrs = strings.Split(o.BootstrapAddrs, ",")
+	}
+
+	if o.RequiredClusterSize > 1 && len(baddrs) == 0 {
+		addrs, err := peerGetter.GetAddrs(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		log.Debugf("cloud provided addresses: %v", addrs)
+		for _, addr := range addrs {
+			baddrs = append(baddrs, fmt.Sprintf("%s:%d", addr, manager.DefaultGossipPort))
+		}
+		log.Debugf("bootstrap addrs: %v", baddrs)
+		if len(baddrs) == 0 {
+			return nil, errors.Errorf("bootstrap addresses must be provided")
+		}
+	}
+	return baddrs, nil
+}
+
+func getSnapshotProvider(o *runOptions) (snapshot.Snapshotter, error) {
+	if o.SnapshotBackupURL == "" {
+		return nil, nil
+	}
+	providerType, path := snapshot.ParseSnapshotBackupURL(o.SnapshotBackupURL)
+	if providerType == "" {
+		return nil, errors.Errorf("error parsing backup url %s (is it a full URL like s3://abc?)", o.SnapshotBackupURL)
+	}
+
+	switch providerType {
+	case snapshot.FileProviderType:
+		return snapshot.NewFileSnapshotter(path)
+	case snapshot.S3ProviderType:
+		return snapshot.NewAmazonSnapshotter(&snapshot.AmazonConfig{
+			RoleSessionName: o.AWSRoleSessionName,
+			S3URL:           o.SnapshotBackupURL,
+		})
+	case snapshot.SpacesProviderType:
+		return snapshot.NewDigitalOceanSnapshotter(&snapshot.DigitalOceanConfig{
+			SpacesURL:       o.SnapshotBackupURL,
+			SpacesAccessKey: o.DOSpacesKey,
+			SpacesSecretKey: o.DOSpacesSecret,
+		})
+	default:
+		return nil, errors.Errorf("unsupported snapshot url format: %#v", o.SnapshotBackupURL)
+	}
 }

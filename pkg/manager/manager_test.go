@@ -303,7 +303,7 @@ func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 	c.addNode("node2", &Config{
 		ClientAddr:          ":2479",
@@ -313,7 +313,7 @@ func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 	c.addNode("node3", &Config{
 		ClientAddr:          ":2579",
@@ -323,7 +323,7 @@ func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 
 	c.startAll()
@@ -364,7 +364,7 @@ func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 	c.addNode("node5", &Config{
 		ClientAddr:          ":2479",
@@ -374,7 +374,7 @@ func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 	c.addNode("node6", &Config{
 		ClientAddr:          ":2579",
@@ -384,7 +384,7 @@ func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 	c.start("node4", "node5", "node6")
 	c.wait("node4", "node5", "node6")
@@ -418,7 +418,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 		SnapshotCompression: true,
 	})
 	c.addNode("node2", &Config{
@@ -429,7 +429,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 		SnapshotCompression: true,
 	})
 	c.addNode("node3", &Config{
@@ -440,7 +440,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 		SnapshotCompression: true,
 	})
 
@@ -482,7 +482,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 		SnapshotCompression: true,
 	})
 	c.addNode("node5", &Config{
@@ -493,7 +493,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 		SnapshotCompression: true,
 	})
 	c.addNode("node6", &Config{
@@ -504,7 +504,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 		RequiredClusterSize: 3,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 		SnapshotCompression: true,
 	})
 	c.start("node4", "node5", "node6")
@@ -981,7 +981,7 @@ func TestManagerDeleteVolatile(t *testing.T) {
 		RequiredClusterSize: 1,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 
 	c.startAll()
@@ -1019,7 +1019,7 @@ func TestManagerDeleteVolatile(t *testing.T) {
 		RequiredClusterSize: 1,
 		HealthCheckInterval: 1 * time.Second,
 		HealthCheckTimeout:  10 * time.Second,
-		SnapshotProvider:    newFileSnapshotter("testdata/snapshots"),
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
 	})
 	c.start("node2")
 	c.wait("node2")

@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"io"
 	"strings"
 )
 
@@ -14,6 +15,11 @@ var providerTypes = []string{
 	FileProviderType,
 	S3ProviderType,
 	SpacesProviderType,
+}
+
+type Snapshotter interface {
+	Load() (io.ReadCloser, error)
+	Save(io.ReadCloser) error
 }
 
 // ParseSnapshotBackupURL deconstructs a uri into a type prefix and a bucket
@@ -42,4 +48,16 @@ func ParseSnapshotBackupURL(url string) (string, string) {
 		return SpacesProviderType, url[strings.LastIndex(url, "/")+1:]
 	}
 	return "", ""
+}
+
+func parseBucketKey(s string) (string, string) {
+	parts := strings.SplitN(s, "/", 2)
+	switch len(parts) {
+	case 1:
+		return parts[0], "etcd.snapshot"
+	case 2:
+		return parts[0], parts[1]
+	default:
+		return "", ""
+	}
 }

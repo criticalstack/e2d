@@ -29,7 +29,7 @@ type Manager struct {
 	gossip      *gossip
 	etcd        *server
 	cluster     *clusterMembership
-	snapshotter snapshot.SnapshotProvider
+	snapshotter snapshot.Snapshotter
 	self        *Member
 
 	removeCh chan string
@@ -64,7 +64,7 @@ func New(cfg *Config) (*Manager, error) {
 			SecretKey:  cfg.GossipSecretKey,
 		}),
 		removeCh:    make(chan string, 10),
-		snapshotter: cfg.SnapshotProvider,
+		snapshotter: cfg.Snapshotter,
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.cluster = newClusterMembership(m.ctx, m.cfg.HealthCheckTimeout, func(name string) error {
