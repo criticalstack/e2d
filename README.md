@@ -12,12 +12,16 @@ e2d is a command-line tool for deploying and managing etcd clusters, both in the
   - [Design](#design)
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
-  - [Providers](#providers)
+  - [Peer discovery](#peer-discovery)
+  - [Snapshots](#snapshots)
+    - [Compression](#compression)
+    - [Encryption](#encryption)
     - [Storage options](#storage-options)
 - [Usage](#usage)
   - [Generating certificates](#generating-certificates)
   - [Running with systemd](#running-with-systemd)
   - [Running with Kubernetes](#running-with-kubernetes)
+- [FAQ](#faq)
 
 ## What is e2d
 
@@ -52,17 +56,66 @@ Running a single-node cluster:
 $ e2d run
 ```
 
-Multi-node clusters require that the `--required-cluster-size/-n` flag be set with the desired size of the cluster. Each node must also either provide a seed of peers (via the `--bootstrap-addrs` flag) or specify a [provider](#providers):
+Multi-node clusters require that the `--required-cluster-size/-n` flag be set with the desired size of the cluster. Each node must also either provide a seed of peers (via the `--bootstrap-addrs` flag):
 
 ```bash
-$ e2d run -n 3 --provider=aws
+$ e2d run -n 3 --bootstrap-addrs 10.0.2.15,10.0.2.17
+```
+
+or specify a method for [peer discovery](#peer-discovery):
+
+```bash
+$ e2d run -n 3 --peer-discovery aws-autoscaling-group
 ```
 
 ## Configuration
 
-### Providers
+### Peer discovery
+
+Peers can be automatically discovered based upon several different built-in methods:
+
+| Method | Usage |
+| --- | --- |
+| AWS Autoscaling Group | `aws-autoscaling-group` |
+| AWS EC2 tags | `ec2-tags[:<name>=<value>,<name>=<value>]` |
+| Digital Ocean tags | `do-tags[:<value>,<value>]` |
+
+For example, running a 3-node cluster in AWS where initial peers are found via ec2 tags:
+
+```bash
+$ e2d run -n 3 --peer-discovery ec2-tags:Name=my-cluster,Email=admin@example.com
+```
+
+which will match for any EC2 instance that has both of the provided tags.
+
+### Snapshots
+
+Periodic backups can be made of the entire database, and e2d automates both creating these snapshot backups, as well as, restoring them in the event of a disaster.
+
+Getting started with periodic snapshots only requires passing a file location to `--snapshot-backup-url`. The url is then parsed to determine the target storage and location. When e2d first starts up, the presence of a valid backup file at the provided URL indicates it should attempt to restore from this snapshot.
+
+#### Compression
+
+The internal database layout of etcd lends itself to being compressed. This is why e2d allows for snapshots to be compressed in-memory at the time of creation. To enable gzip compression, use the `--snapshot-compression` flag.
+
+#### Encryption
+
+Snapshot storage options like S3 use TLS and offer encryption-at-rest, however, it is possible that encryption of the snapshot file itself might be needed. This is especially true for other storage options that do not offer these features. Enabling snapshot encryption is simply `--snapshot-encryption`. The encryption key itself is derived only from the CA private key, so enabling encryption also requires passing `--ca-key <key path>`.
+
+The encryption being used is AES-256 in [CTR mode](https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#Counter_(CTR)), with message authentication provided by HMAC-512_256. This mode was used because the Go implementation of AES-GCM would require the entire snapshot to be in-memory, and CTR mode allows for memory efficient streaming.
+
+It is possible to use compression alongside of encryption, however, it is important to note that because of the possibility of opening up side-channel attacks, compression is not performed before encryption. The nature of how strong encryption works causes the encrypted snapshot to not gain benefits from compression. So enabling snapshot compression with encryption will cause the gzip level to be set to `gzip.NoCompression`, meaning it still creates a valid gzip file, but doesn't waste nearly as many compute resources while doing so.
 
 #### Storage options
+
+The `--snapshot-backup-url` has several schemes it implicitly understands:
+
+| Storage Type | Usage |
+| --- | --- |
+| File | `file://<path>` |
+| AWS S3 | `s3://<bucket>[/path]` |
+| Digital Ocean Spaces | `https://<region>.digitaloceanspaces.com/<bucket>[/path]` |
+
 
 ## Usage
 
@@ -229,4 +282,3 @@ spec:
           type: DirectoryOrCreate
         name: data
 ```
-
