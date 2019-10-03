@@ -259,17 +259,17 @@ func newSnapshotReadCloser(snapshot backend.Snapshot) io.ReadCloser {
 	return pr
 }
 
-func (s *server) createSnapshot(minRevision int64) (io.ReadCloser, int64, error) {
+func (s *server) createSnapshot(minRevision int64) (io.ReadCloser, int64, int64, error) {
 	// Get the current revision and compare with the minimum requested revision.
 	revision := s.Etcd.Server.KV().Rev()
 	if revision <= minRevision {
-		return nil, revision, errors.Errorf("member revision too old, wanted %d, received: %d", minRevision, revision)
+		return nil, 0, revision, errors.Errorf("member revision too old, wanted %d, received: %d", minRevision, revision)
 	}
 	sp := s.Etcd.Server.Backend().Snapshot()
 	if sp == nil {
-		return nil, revision, errors.New("no snappy")
+		return nil, 0, revision, errors.New("no snappy")
 	}
-	return newSnapshotReadCloser(sp), revision, nil
+	return newSnapshotReadCloser(sp), sp.Size(), revision, nil
 }
 
 func (s *server) restoreSnapshot(snapshotFilename string, peers []*Peer) error {

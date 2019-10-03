@@ -2,7 +2,6 @@
 package manager
 
 import (
-	"compress/gzip"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -15,11 +14,11 @@ import (
 
 	"github.com/cloudflare/cfssl/csr"
 	"github.com/criticalstack/e2d/pkg/client"
-	"github.com/criticalstack/e2d/pkg/gziputil"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/netutil"
 	"github.com/criticalstack/e2d/pkg/pki"
 	"github.com/criticalstack/e2d/pkg/snapshot"
+	snapshotutil "github.com/criticalstack/e2d/pkg/snapshot/util"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -76,12 +75,15 @@ func (n *testCluster) startAll() {
 
 func (n *testCluster) saveSnapshot(name string) {
 	node := n.lookupNode(name)
-	data, _, err := node.etcd.createSnapshot(0)
+	data, size, _, err := node.etcd.createSnapshot(0)
 	if err != nil {
 		n.t.Fatal(err)
 	}
+	if node.cfg.SnapshotEncryption {
+		data = snapshotutil.NewEncrypterReadCloser(data, node.cfg.snapshotEncryptionKey, size)
+	}
 	if node.cfg.SnapshotCompression {
-		data = gziputil.NewGzipReadCloser(data, gzip.BestCompression)
+		data = snapshotutil.NewGzipReadCloser(data)
 	}
 	if err := node.snapshotter.Save(data); err != nil {
 		n.t.Fatal(err)
@@ -521,6 +523,215 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 	}
 }
 
+func TestManagerRestoreClusterFromSnapshotEncryption(t *testing.T) {
+	if !*testLong {
+		t.Skip()
+	}
+	if err := os.RemoveAll("testdata"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeTestingCerts(); err != nil {
+		t.Fatal(err)
+	}
+
+	caCertFile := "testdata/ca.crt"
+	caKeyFile := "testdata/ca.key"
+	serverCertFile := "testdata/server.crt"
+	serverKeyFile := "testdata/server.key"
+	peerCertFile := "testdata/peer.crt"
+	peerKeyFile := "testdata/peer.key"
+	clientCertFile := "testdata/client.crt"
+	clientKeyFile := "testdata/client.key"
+
+	c := newTestCluster(t)
+	defer c.cleanup()
+
+	c.addNode("node1", &Config{
+		ClientAddr:          ":2379",
+		PeerAddr:            ":2380",
+		GossipAddr:          ":7980",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
+		SnapshotCompression: true,
+		SnapshotEncryption:  true,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.addNode("node2", &Config{
+		ClientAddr:          ":2479",
+		PeerAddr:            ":2480",
+		GossipAddr:          ":7981",
+		BootstrapAddrs:      []string{":7980"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
+		SnapshotCompression: true,
+		SnapshotEncryption:  true,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.addNode("node3", &Config{
+		ClientAddr:          ":2579",
+		PeerAddr:            ":2580",
+		GossipAddr:          ":7982",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
+		SnapshotCompression: true,
+		SnapshotEncryption:  true,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+
+	c.startAll()
+	c.wait("node1", "node2", "node3")
+	fmt.Println("ready")
+	cl := newSecureTestClient(":2479", caCertFile, clientCertFile, clientKeyFile)
+	testKey1 := "testkey1"
+	testValue1 := "testvalue1"
+	if err := cl.Set(testKey1, testValue1); err != nil {
+		t.Fatal(err)
+	}
+	v, err := cl.Get(testKey1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.Close()
+	if string(v) != testValue1 {
+		t.Fatalf("expected %#v, received %#v", testValue1, string(v))
+	}
+	leader := c.leader().cfg.Name
+	fmt.Printf("leader = %+v\n", leader)
+	c.saveSnapshot(leader)
+	c.stop("node1")
+	c.stop("node2")
+	c.stop("node3")
+
+	// need to wait a bit to ensure the port is free to bind
+	time.Sleep(1 * time.Second)
+
+	// SnapshotInterval is 0 so creating snapshots is disabled, however,
+	// SnapshotDir is being replaced with default SnapshotDir from node1 so
+	// that this new node can restore that snapshot
+	c.addNode("node4", &Config{
+		ClientAddr:          ":2379",
+		PeerAddr:            ":2380",
+		GossipAddr:          ":7980",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
+		SnapshotCompression: true,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.addNode("node5", &Config{
+		ClientAddr:          ":2479",
+		PeerAddr:            ":2480",
+		GossipAddr:          ":7981",
+		BootstrapAddrs:      []string{":7980"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
+		SnapshotCompression: true,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.addNode("node6", &Config{
+		ClientAddr:          ":2579",
+		PeerAddr:            ":2580",
+		GossipAddr:          ":7982",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+		Snapshotter:         newFileSnapshotter("testdata/snapshots"),
+		SnapshotCompression: true,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.start("node4", "node5", "node6")
+	c.wait("node4", "node5", "node6")
+	cl = newSecureTestClient(":2379", caCertFile, clientCertFile, clientKeyFile)
+	v, err = cl.Get(testKey1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.Close()
+	if string(v) != testValue1 {
+		t.Fatalf("expected %#v, received %#v", testValue1, string(v))
+	}
+}
+
 func TestManagerSingleNodeRestart(t *testing.T) {
 	if !*testLong {
 		t.Skip()
@@ -713,23 +924,16 @@ func TestManagerNodeReplacementUsedPeerAddr(t *testing.T) {
 	}
 }
 
-func TestManagerSecurityConfig(t *testing.T) {
-	if !*testLong {
-		t.Skip()
-	}
-
-	if err := os.RemoveAll("testdata"); err != nil {
-		t.Fatal(err)
-	}
+func writeTestingCerts() error {
 	r, err := pki.NewDefaultRootCA()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if err := writeFile("testdata/ca.crt", r.CA.CertPEM, 0644); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if err := writeFile("testdata/ca.key", r.CA.KeyPEM, 0600); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	certs, err := r.GenerateCertificates(pki.ServerSigningProfile, &csr.CertificateRequest{
 		Names: []csr.Name{
@@ -747,14 +951,14 @@ func TestManagerSecurityConfig(t *testing.T) {
 		CN:    "etcd server",
 	})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	if err := writeFile("testdata/server.crt", certs.CertPEM, 0644); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if err := writeFile("testdata/server.key", certs.KeyPEM, 0600); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	certs, err = r.GenerateCertificates(pki.PeerSigningProfile, &csr.CertificateRequest{
 		Names: []csr.Name{
@@ -772,14 +976,14 @@ func TestManagerSecurityConfig(t *testing.T) {
 		CN:    "etcd peer",
 	})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	if err := writeFile("testdata/peer.crt", certs.CertPEM, 0644); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if err := writeFile("testdata/peer.key", certs.KeyPEM, 0600); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	certs, err = r.GenerateCertificates(pki.ClientSigningProfile, &csr.CertificateRequest{
 		Names: []csr.Name{
@@ -797,17 +1001,32 @@ func TestManagerSecurityConfig(t *testing.T) {
 		CN:    "etcd client",
 	})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	if err := writeFile("testdata/client.crt", certs.CertPEM, 0644); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if err := writeFile("testdata/client.key", certs.KeyPEM, 0600); err != nil {
+		return err
+	}
+	return nil
+}
+
+func TestManagerSecurityConfig(t *testing.T) {
+	if !*testLong {
+		t.Skip()
+	}
+	if err := os.RemoveAll("testdata"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeTestingCerts(); err != nil {
 		t.Fatal(err)
 	}
 
 	caCertFile := "testdata/ca.crt"
+	caKeyFile := "testdata/ca.key"
 	serverCertFile := "testdata/server.crt"
 	serverKeyFile := "testdata/server.key"
 	peerCertFile := "testdata/peer.crt"
@@ -836,6 +1055,8 @@ func TestManagerSecurityConfig(t *testing.T) {
 			KeyFile:       peerKeyFile,
 			TrustedCAFile: caCertFile,
 		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
 	})
 	c.addNode("node2", &Config{
 		ClientAddr:          ":2479",
@@ -855,6 +1076,8 @@ func TestManagerSecurityConfig(t *testing.T) {
 			KeyFile:       peerKeyFile,
 			TrustedCAFile: caCertFile,
 		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
 	})
 	c.addNode("node3", &Config{
 		ClientAddr:          ":2579",
@@ -874,6 +1097,8 @@ func TestManagerSecurityConfig(t *testing.T) {
 			KeyFile:       peerKeyFile,
 			TrustedCAFile: caCertFile,
 		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
 	})
 
 	c.start("node1", "node2", "node3")

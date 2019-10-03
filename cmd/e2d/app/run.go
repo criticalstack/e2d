@@ -26,6 +26,7 @@ type runOptions struct {
 	GossipAddr string `env:"E2D_GOSSIP_ADDR"`
 
 	CACert     string `env:"E2D_CA_CERT"`
+	CAKey      string `env:"E2D_CA_KEY"`
 	PeerCert   string `env:"E2D_PEER_CERT"`
 	PeerKey    string `env:"E2D_PEER_KEY"`
 	ServerCert string `env:"E2D_SERVER_CERT"`
@@ -41,6 +42,7 @@ type runOptions struct {
 
 	SnapshotBackupURL   string        `env:"E2D_SNAPSHOT_BACKUP_URL"`
 	SnapshotCompression bool          `env:"E2D_SNAPSHOT_COMPRESSION"`
+	SnapshotEncryption  bool          `env:"E2D_SNAPSHOT_ENCRYPTION"`
 	SnapshotInterval    time.Duration `env:"E2D_SNAPSHOT_INTERVAL"`
 
 	AWSAccessKey       string `env:"E2D_AWS_ACCESS_KEY"`
@@ -85,6 +87,7 @@ func newRunCmd() *cobra.Command {
 				RequiredClusterSize: o.RequiredClusterSize,
 				SnapshotInterval:    o.SnapshotInterval,
 				SnapshotCompression: o.SnapshotCompression,
+				SnapshotEncryption:  o.SnapshotEncryption,
 				HealthCheckInterval: o.HealthCheckInterval,
 				HealthCheckTimeout:  o.HealthCheckTimeout,
 				ClientSecurity: client.SecurityConfig{
@@ -97,6 +100,8 @@ func newRunCmd() *cobra.Command {
 					KeyFile:       o.PeerKey,
 					TrustedCAFile: o.CACert,
 				},
+				CACertFile:  o.CACert,
+				CAKeyFile:   o.CAKey,
 				PeerGetter:  peerGetter,
 				Snapshotter: snapshotter,
 				Debug:       globalOptions.verbose,
@@ -118,6 +123,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.GossipAddr, "gossip-addr", "0.0.0.0:7980", "gossip address")
 
 	cmd.Flags().StringVar(&o.CACert, "ca-cert", "", "etcd trusted ca certificate")
+	cmd.Flags().StringVar(&o.CAKey, "ca-key", "", "etcd ca key")
 	cmd.Flags().StringVar(&o.PeerCert, "peer-cert", "", "etcd peer certificate")
 	cmd.Flags().StringVar(&o.PeerKey, "peer-key", "", "etcd peer private key")
 	cmd.Flags().StringVar(&o.ServerCert, "server-cert", "", "etcd server certificate")
@@ -134,6 +140,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&o.SnapshotInterval, "snapshot-interval", 1*time.Minute, "frequency of etcd snapshots")
 	cmd.Flags().StringVar(&o.SnapshotBackupURL, "snapshot-backup-url", "", "an absolute path to shared filesystem storage (like file:///etcd-backups) or cloud storage bucket (like s3://etcd-backups) for snapshot backups")
 	cmd.Flags().BoolVar(&o.SnapshotCompression, "snapshot-compression", false, "compression snapshots with gzip")
+	cmd.Flags().BoolVar(&o.SnapshotEncryption, "snapshot-encryption", false, "encrypt snapshots with aes-256")
 
 	cmd.Flags().StringVar(&o.AWSAccessKey, "aws-access-key", "", "")
 	cmd.Flags().StringVar(&o.AWSSecretKey, "aws-secret-key", "", "")

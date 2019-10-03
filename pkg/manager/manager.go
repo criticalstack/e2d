@@ -2,7 +2,6 @@ package manager
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"io"
 	"io/ioutil"
@@ -10,9 +9,9 @@ import (
 	"time"
 
 	"github.com/criticalstack/e2d/pkg/client"
-	"github.com/criticalstack/e2d/pkg/gziputil"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/snapshot"
+	snapshotutil "github.com/criticalstack/e2d/pkg/snapshot/util"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/lease"
@@ -60,7 +59,7 @@ func New(cfg *Config) (*Manager, error) {
 			PeerURL:    cfg.PeerURL.String(),
 			GossipHost: cfg.GossipHost,
 			GossipPort: cfg.GossipPort,
-			SecretKey:  cfg.GossipSecretKey,
+			SecretKey:  cfg.gossipSecretKey,
 		}),
 		removeCh:    make(chan string, 10),
 		snapshotter: cfg.Snapshotter,
@@ -137,13 +136,9 @@ func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
 		return false, err
 	}
 	defer tmpFile.Close()
-	if m.cfg.SnapshotCompression {
-		var err error
-		r, err = gziputil.NewGunzipReadCloser(r)
-		if err != nil {
-			return false, err
-		}
-	}
+
+	r = snapshotutil.NewGunzipReadCloser(r)
+	r = snapshotutil.NewDecrypterReadCloser(r, m.cfg.snapshotEncryptionKey)
 	if _, err := io.Copy(tmpFile, r); err != nil {
 		return false, err
 	}
@@ -436,7 +431,7 @@ func (m *Manager) runSnapshotter() {
 				continue
 			}
 			log.Debug("starting snapshot backup")
-			snapshotData, rev, err := m.etcd.createSnapshot(latestRev)
+			snapshotData, snapshotSize, rev, err := m.etcd.createSnapshot(latestRev)
 			if err != nil {
 				log.Debug("cannot create snapshot",
 					zap.String("name", shortName(m.cfg.Name)),
@@ -444,8 +439,11 @@ func (m *Manager) runSnapshotter() {
 				)
 				continue
 			}
+			if m.cfg.SnapshotEncryption {
+				snapshotData = snapshotutil.NewEncrypterReadCloser(snapshotData, m.cfg.snapshotEncryptionKey, snapshotSize)
+			}
 			if m.cfg.SnapshotCompression {
-				snapshotData = gziputil.NewGzipReadCloser(snapshotData, gzip.BestCompression)
+				snapshotData = snapshotutil.NewGzipReadCloser(snapshotData)
 			}
 			if err := m.snapshotter.Save(snapshotData); err != nil {
 				log.Debug("cannot save snapshot",

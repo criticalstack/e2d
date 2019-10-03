@@ -2,8 +2,14 @@
 package manager
 
 import (
+	"bytes"
+	"crypto/sha512"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"math/rand"
 	"net/url"
 	"path/filepath"
@@ -14,7 +20,6 @@ import (
 	"github.com/criticalstack/e2d/pkg/discovery"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/netutil"
-	"github.com/criticalstack/e2d/pkg/pki"
 	"github.com/criticalstack/e2d/pkg/snapshot"
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
@@ -62,9 +67,6 @@ type Config struct {
 	// port used for gossip network, derived from GossipAddr
 	GossipPort int
 
-	// key used to secure  the gossip network, derived from PeerSecurity settings
-	GossipSecretKey []byte
-
 	// addresses used to bootstrap the gossip network
 	BootstrapAddrs []string
 
@@ -76,6 +78,9 @@ type Config struct {
 
 	// use gzip compression for snapshot backup
 	SnapshotCompression bool
+
+	// use aes-256 encryption for snapshot backup
+	SnapshotEncryption bool
 
 	// how often to perform a health check
 	HealthCheckInterval time.Duration
@@ -89,15 +94,22 @@ type Config struct {
 	// configures authentication/transport security within the etcd cluster
 	PeerSecurity client.SecurityConfig
 
+	CACertFile string
+	CAKeyFile  string
+
 	// configures the level of the logger used by etcd
 	EtcdLogLevel zapcore.Level
 
 	discovery.PeerGetter
 	snapshot.Snapshotter
 
+	gossipSecretKey       []byte
+	snapshotEncryptionKey *[32]byte
+
 	Debug bool
 }
 
+//nolint:gocyclo
 func (c *Config) validate() error {
 	if c.Dir == "" {
 		c.Dir = "data"
@@ -178,14 +190,34 @@ func (c *Config) validate() error {
 		return errors.Wrapf(err, "cannot split GossipAddr: %#v", c.GossipAddr)
 	}
 
-	// memberlist security is set implicitly based upon the PeerSecurity
-	// settings
-	if c.PeerSecurity.TrustedCAFile != "" {
-		var err error
-		c.GossipSecretKey, err = pki.GenerateCertHash(c.PeerSecurity.TrustedCAFile)
+	// both memberlist security and snapshot encryption are implicitly based
+	// upon the CA key
+	if c.CAKeyFile != "" {
+		data, err := ioutil.ReadFile(c.CAKeyFile)
 		if err != nil {
 			return err
 		}
+		block, _ := pem.Decode(data)
+		if _, err := x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
+			return errors.Wrapf(err, "cannot parse ca key file: %#v", c.CAKeyFile)
+		}
+		h := sha512.New512_256()
+		if _, err := h.Write(block.Bytes); err != nil {
+			return err
+		}
+		key := [32]byte{}
+		if _, err := io.ReadFull(bytes.NewReader(h.Sum(nil)), key[:]); err != nil {
+			return err
+		}
+		c.gossipSecretKey = key[:]
+		c.snapshotEncryptionKey = &key
+		if err != nil {
+			return err
+		}
+	}
+
+	if c.SnapshotEncryption && c.CAKeyFile == "" {
+		return errors.New("must provide ca key for snapshot encryption")
 	}
 
 	if len(c.BootstrapAddrs) == 0 && c.RequiredClusterSize > 1 {
