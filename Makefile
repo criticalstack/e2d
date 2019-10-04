@@ -11,8 +11,9 @@ endif
 export GOPROXY
 
 # Directories.
-TOOLS_DIR := hack
+TOOLS_DIR := hack/tools
 TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
+BIN_DIR := bin
 
 # Binaries.
 GOLANGCI_LINT := $(TOOLS_BIN_DIR)/golangci-lint
@@ -35,9 +36,17 @@ test-manager: ## Test the manager package
 clean: ## Cleanup the project folders
 	@rm -rf ./bin/*
 
+.PHONY: lint
+
+lint: $(GOLANGCI_LINT) ## Lint codebase
+	$(GOLANGCI_LINT) run -v
+
 ##@ Helpers
 
 .PHONY: help
+
+$(GOLANGCI_LINT): $(TOOLS_DIR)/go.mod # Build golangci-lint from tools folder.
+	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/golangci-lint github.com/golangci/golangci-lint/cmd/golangci-lint
 
 help:  ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
