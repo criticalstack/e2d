@@ -35,11 +35,15 @@ test-manager: ## Test the manager package
 
 clean: ## Cleanup the project folders
 	@rm -rf ./bin/*
+	rm -rf hack/tools/bin
 
 .PHONY: lint
 
 lint: $(GOLANGCI_LINT) ## Lint codebase
 	$(GOLANGCI_LINT) run -v
+
+lint-full: $(GOLANGCI_LINT) ## Run slower linters to detect possible issues
+	$(GOLANGCI_LINT) run -v --fast=false
 
 ##@ Helpers
 
