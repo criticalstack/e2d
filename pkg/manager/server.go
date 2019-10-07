@@ -253,7 +253,7 @@ func newSnapshotReadCloser(snapshot backend.Snapshot) io.ReadCloser {
 		if err == nil {
 			log.Infof("wrote database snapshot out [total bytes: %d]", n)
 		}
-		pw.CloseWithError(err)
+		_ = pw.CloseWithError(err)
 		snapshot.Close()
 	}()
 	return pr

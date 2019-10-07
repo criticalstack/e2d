@@ -1,3 +1,4 @@
+//nolint:structcheck,unused
 package e2db_test
 
 import (

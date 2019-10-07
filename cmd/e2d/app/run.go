@@ -142,7 +142,9 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.DOAccessToken, "do-access-token", "", "DigitalOcean personal access token")
 	cmd.Flags().StringVar(&o.DOSpacesKey, "do-spaces-key", "", "DigitalOcean spaces access key")
 	cmd.Flags().StringVar(&o.DOSpacesSecret, "do-spaces-secret", "", "DigitalOcean spaces secret")
-	cmdutil.SetEnvs(o)
+	if err := cmdutil.SetEnvs(o); err != nil {
+		log.Debug("cannot set environment variables", zap.Error(err))
+	}
 
 	return cmd
 }

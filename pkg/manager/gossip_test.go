@@ -1,3 +1,4 @@
+//nolint:errcheck
 package manager
 
 import (

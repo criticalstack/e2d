@@ -33,7 +33,7 @@ func (c *Client) members(ctx context.Context) (map[string]*Member, error) {
 	members := make(map[string]*Member)
 	for _, member := range resp.Members {
 		m := &Member{
-			ID:   uint64(member.ID),
+			ID:   member.ID,
 			Name: member.Name,
 		}
 		if len(member.ClientURLs) > 0 {
@@ -55,7 +55,7 @@ func (c *Client) addMember(ctx context.Context, peerURL string) (*Member, error)
 		return nil, err
 	}
 	m := &Member{
-		ID:   uint64(resp.Member.ID),
+		ID:   resp.Member.ID,
 		Name: resp.Member.Name,
 	}
 	if len(resp.Member.ClientURLs) > 0 {

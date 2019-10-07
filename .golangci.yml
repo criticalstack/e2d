@@ -1,0 +1,20 @@
+linters:
+  enable-all: true
+  disable:
+    - dupl
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - gocritic
+    - lll
+    - scopelint
+    - staticcheck
+    - unparam
+    - unused
+  # Run with --fast=false for more extensive checks
+  fast: true
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
+run:
+  deadline: 2m

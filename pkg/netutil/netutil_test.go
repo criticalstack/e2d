@@ -4,7 +4,7 @@ import "testing"
 
 func TestIsRoutableIPv4(t *testing.T) {
 	tests := []struct {
-		s string
+		s    string
 		want bool
 	}{
 		{

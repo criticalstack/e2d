@@ -29,7 +29,7 @@ func New(cfg *Config) (*Client, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	tlsConfig := &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	if !cfg.SecurityConfig.TLSInfo().Empty() {
 		var err error
 		tlsConfig, err = cfg.SecurityConfig.TLSInfo().ClientConfig()
@@ -180,7 +180,9 @@ func (c *Client) Lock(key string, timeout time.Duration) (context.CancelFunc, er
 		return nil, err
 	}
 	unlock := func() {
-		mutex.Unlock(ctx)
+		if err := mutex.Unlock(ctx); err != nil {
+			log.Debug("mutex.Unlock", zap.Error(err))
+		}
 		session.Close()
 	}
 	return unlock, nil

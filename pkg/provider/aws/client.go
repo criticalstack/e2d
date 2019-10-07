@@ -121,6 +121,9 @@ func (c *Client) GetAddressesByTag(ctx context.Context, kvs map[string]string) (
 		}
 		return !lastPage
 	})
+	if err != nil {
+		return nil, err
+	}
 	addrs := make([]string, 0)
 	for _, i := range instances {
 		if i == doc.InstanceID {

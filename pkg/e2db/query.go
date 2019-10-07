@@ -33,13 +33,12 @@ type Query interface {
 }
 
 type query struct {
-	t         *Table
-	matchers  []q.Matcher
-	countOnly bool
-	limit     int
-	skip      int
-	sort      string
-	reverse   bool
+	t        *Table
+	matchers []q.Matcher
+	limit    int
+	skip     int
+	sort     string
+	reverse  bool
 }
 
 func newQuery(t *Table, matchers ...q.Matcher) *query {

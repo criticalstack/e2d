@@ -5,7 +5,6 @@ workspace:
 clone:
   git:
     image: plugins/git
-    depth: 1
     tags: true
 
 pipeline:
@@ -13,6 +12,11 @@ pipeline:
     image: golang:latest
     commands:
     - make test
+
+  lint:
+    image: golang:latest
+    commands:
+    - make lint
 
   release:
     when:
