@@ -21,7 +21,9 @@ func newCompletionCmd(rootCmd *cobra.Command) *cobra.Command {
 				}
 				defer w.Close()
 			}
-			rootCmd.GenBashCompletion(w)
+			if err := rootCmd.GenBashCompletion(w); err != nil {
+				log.Fatal(err)
+			}
 		},
 	}
 	return cmd

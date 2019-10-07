@@ -95,7 +95,9 @@ func (s *AmazonSnapshotter) Load() (io.ReadCloser, error) {
 		tmpFile.Close()
 		return nil, errors.Wrapf(err, "cannot download file: %v", s.key)
 	}
-	tmpFile.Seek(0, 0)
+	if _, err := tmpFile.Seek(0, 0); err != nil {
+		return nil, err
+	}
 	return tmpFile, nil
 }
 

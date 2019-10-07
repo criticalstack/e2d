@@ -84,7 +84,7 @@ func (tx *Tx) Insert(iface interface{}) error {
 			case reflect.Int:
 				pk.value.Set(reflect.ValueOf(int(id)))
 			case reflect.Int64:
-				pk.value.Set(reflect.ValueOf(int64(id)))
+				pk.value.Set(reflect.ValueOf(id))
 			}
 		}
 	}

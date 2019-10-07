@@ -31,7 +31,7 @@ func NewGzipReadCloser(r io.ReadCloser, level int) io.ReadCloser {
 
 		_, err := io.Copy(gw, r)
 		if err != nil {
-			pr.CloseWithError(err)
+			_ = pw.CloseWithError(err)
 		}
 	}()
 	return pr

@@ -30,7 +30,6 @@ type Manager struct {
 	etcd        *server
 	cluster     *clusterMembership
 	snapshotter snapshot.Snapshotter
-	self        *Member
 
 	removeCh chan string
 }
@@ -102,7 +101,9 @@ func (m *Manager) HardStop() {
 	m.cancel()
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.etcd.hardStop()
-	m.gossip.Shutdown()
+	if err := m.gossip.Shutdown(); err != nil {
+		log.Debug("gossip shutdown failed", zap.Error(err))
+	}
 }
 
 // GracefulStop stops all services and cleans up the Manager state. It attempts
@@ -115,7 +116,9 @@ func (m *Manager) GracefulStop() {
 	m.cancel()
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.etcd.gracefulStop()
-	m.gossip.Shutdown()
+	if err := m.gossip.Shutdown(); err != nil {
+		log.Debug("gossip shutdown failed", zap.Error(err))
+	}
 }
 
 func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
@@ -279,7 +282,9 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 		peers = append(peers, &Peer{m.Name, m.PeerURL})
 	}
 	if err := m.etcd.joinExisting(peers); err != nil {
-		c.removeMember(m.ctx, member.ID)
+		if err := c.removeMember(m.ctx, member.ID); err != nil {
+			log.Debug("unable to remove member", zap.Error(err))
+		}
 		return err
 	}
 	return nil
@@ -395,7 +400,9 @@ func (m *Manager) runMembershipCleanup() {
 					log.Debugf("[%v]: member %v peerAddr in use by member %v", shortName(m.cfg.Name), member.Name, oldName)
 					if oldName != member.Name {
 						log.Debugf("[%v]: members name mismatched, evicting %v", shortName(m.cfg.Name), oldName)
-						m.cluster.removeMember(oldName)
+						if err := m.cluster.removeMember(oldName); err != nil {
+							log.Debug("unable to remove member", zap.Error(err))
+						}
 					}
 				}
 

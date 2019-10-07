@@ -71,6 +71,9 @@ func ParseAddr(addr string) (*Address, error) {
 
 func FixUnspecifiedHostAddr(addr string) (string, error) {
 	host, port, err := SplitHostPort(addr)
+	if err != nil {
+		return addr, err
+	}
 	if !net.ParseIP(host).IsUnspecified() {
 		return addr, nil
 	}

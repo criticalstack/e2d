@@ -1,3 +1,4 @@
+//nolint:maligned
 package manager
 
 import (

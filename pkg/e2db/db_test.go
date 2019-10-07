@@ -235,7 +235,6 @@ func TestNestedFieldQuery(t *testing.T) {
 	}
 
 	table := db.Table(&Model{})
-	defer table.Drop()
 
 	rows := []*Model{
 		{

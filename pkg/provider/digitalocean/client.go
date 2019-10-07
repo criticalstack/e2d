@@ -9,10 +9,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const (
-	tagPrefix = "e2d"
-)
-
 type Config struct {
 	AccessToken     string
 	SpacesAccessKey string

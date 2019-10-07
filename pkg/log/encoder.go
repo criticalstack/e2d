@@ -1,4 +1,6 @@
 // This code was derived from https://github.com/jsternberg/zap-logfmt
+
+//nolint:errcheck
 package log
 
 import (
@@ -181,7 +183,7 @@ func (enc *logfmtEncoder) AppendByteString(value []byte) {
 
 func (enc *logfmtEncoder) AppendComplex128(value complex128) {
 	// Cast to a platform-independent, fixed-size type.
-	r, i := float64(real(value)), float64(imag(value))
+	r, i := real(value), imag(value)
 	enc.buf.AppendFloat(r, 64)
 	enc.buf.AppendByte('+')
 	enc.buf.AppendFloat(i, 64)
@@ -462,7 +464,7 @@ func (enc *literalEncoder) AppendByteString(value []byte) {
 func (enc *literalEncoder) AppendComplex128(value complex128) {
 	enc.addSeparator()
 	// Cast to a platform-independent, fixed-size type.
-	r, i := float64(real(value)), float64(imag(value))
+	r, i := real(value), imag(value)
 	enc.buf.AppendFloat(r, 64)
 	enc.buf.AppendByte('+')
 	enc.buf.AppendFloat(i, 64)
@@ -548,6 +550,7 @@ func needsQuotedValueRune(r rune) bool {
 	return r != 0x1b && r <= ' ' || r == '=' || r == '"' || r == utf8.RuneError
 }
 
+//nolint:deadcode
 func addFields(enc zapcore.ObjectEncoder, fields []zapcore.Field) {
 	for i := range fields {
 		fields[i].AddTo(enc)
