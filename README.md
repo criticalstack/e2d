@@ -87,7 +87,7 @@ This will create the remaining key pairs needed to run e2d based on the initial 
 
 ### Running with systemd
 
-An example unit file for running via systemd in AWS:
+An example unit file for running via systemd in an AWS ASG:
 
 ```
 [Unit]
@@ -103,7 +103,7 @@ ExecStart=/usr/local/bin/e2d run \
   --peer-key=/etc/kubernetes/pki/etcd/peer.key \
   --server-cert=/etc/kubernetes/pki/etcd/server.crt \
   --server-key=/etc/kubernetes/pki/etcd/server.key \
-  --provider=aws \
+  --peer-discovery=aws-autoscaling-group \
   --required-cluster-size=3 \
   --snapshot-backup-url=s3://e2d_snapshot_bucket
 Restart=on-failure
@@ -147,7 +147,7 @@ spec:
     - --peer-key=/certs/peer.key
     - --server-cert=/certs/server.crt
     - --server-key=/certs/server.key
-    - --provider=aws
+    - --peer-discovery=aws-autoscaling-group
     - --required-cluster-size=3
     - --snapshot-backup-url=s3://e2d_snapshot_bucket
     image: criticalstack/e2d
@@ -204,7 +204,7 @@ spec:
         - --data-dir=/data
         - --peer-cert=/certs/peer.crt
         - --peer-key=/certs/peer.key
-        - --provider=aws
+        - --peer-discovery=aws-autoscaling-group
         - --required-cluster-size=3
         - --server-cert=/certs/server.crt
         - --server-key=/certs/server.key

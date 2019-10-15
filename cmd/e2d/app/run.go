@@ -112,7 +112,7 @@ func newRunCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&o.Name, "name", "", "specify a name for the node")
 	cmd.Flags().StringVar(&o.DataDir, "data-dir", "", "etcd data-dir")
-	cmd.Flags().StringVar(&o.Host, "host", "", "host IPv4")
+	cmd.Flags().StringVar(&o.Host, "host", "", "host IPv4 (defaults to 127.0.0.1 if unset)")
 	cmd.Flags().StringVar(&o.ClientAddr, "client-addr", "0.0.0.0:2379", "etcd client addrress")
 	cmd.Flags().StringVar(&o.PeerAddr, "peer-addr", "0.0.0.0:2380", "etcd peer addrress")
 	cmd.Flags().StringVar(&o.GossipAddr, "gossip-addr", "0.0.0.0:7980", "gossip address")
@@ -129,7 +129,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&o.HealthCheckInterval, "health-check-interval", 1*time.Minute, "")
 	cmd.Flags().DurationVar(&o.HealthCheckTimeout, "health-check-timeout", 5*time.Minute, "")
 
-	cmd.Flags().StringVar(&o.PeerDiscovery, "peer-discovery", "", "")
+	cmd.Flags().StringVar(&o.PeerDiscovery, "peer-discovery", "", "which method {aws-autoscaling-group,ec2-tags,do-tags} to use to discover peers")
 
 	cmd.Flags().DurationVar(&o.SnapshotInterval, "snapshot-interval", 1*time.Minute, "frequency of etcd snapshots")
 	cmd.Flags().StringVar(&o.SnapshotBackupURL, "snapshot-backup-url", "", "an absolute path to shared filesystem storage (like file:///etcd-backups) or cloud storage bucket (like s3://etcd-backups) for snapshot backups")
