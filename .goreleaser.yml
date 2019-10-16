@@ -2,8 +2,13 @@
 # Make sure to check the documentation at http://goreleaser.com
 before:
   hooks:
-    # you may remove this if you don't use vgo
-    #- go mod tidy
+  # Ensure that any go.mod modifications due to linters, go generate, etc are
+  # removed.
+  - go mod tidy
+  # Using Go modules intrinsically causes modifications to these files that are
+  # unfortunately unavoidable. Newer patch versions available to the CI will
+  # satisfy the same module requirements and cause additions to go.sum.
+  - git checkout -- go.sum
 builds:
 - env:
   - CGO_ENABLED=0
