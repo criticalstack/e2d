@@ -3,12 +3,9 @@
 
 .DEFAULT_GOAL:=help
 
-# Use GOPROXY environment variable if set
-GOPROXY := $(shell go env GOPROXY)
 ifeq ($(GOPROXY),)
-GOPROXY := https://proxy.golang.org
+export GOPROXY = direct
 endif
-export GOPROXY
 
 # Directories.
 TOOLS_DIR := hack/tools
@@ -28,6 +25,7 @@ build: clean ## Build the e2d golang binary
 	$(GO_BUILD_ENV_VARS) go build -o bin/e2d $(GCFLAGS) ./cmd/e2d
 
 test: ## Run all tests
+	echo $(GOPROXY)
 	go test ./...
 
 test-manager: ## Test the manager package

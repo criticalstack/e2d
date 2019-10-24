@@ -13,6 +13,8 @@ builds:
 - env:
   - CGO_ENABLED=0
   - GO111MODULE=on
+  - GOPROXY=direct
+  - GOSUMDB=off
   main: ./cmd/e2d
   gcflags:
     - all=-trimpath={{.Env.GOPATH}}
