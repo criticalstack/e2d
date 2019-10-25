@@ -25,7 +25,8 @@ func newAWSConfig(name string) (*aws.Config, error) {
 
 type AmazonConfig struct {
 	RoleSessionName string
-	S3URL           string
+	Bucket          string
+	Key             string
 }
 
 type AmazonSnapshotter struct {
@@ -41,14 +42,7 @@ func NewAmazonSnapshotter(cfg *AmazonConfig) (*AmazonSnapshotter, error) {
 	if err != nil {
 		return nil, err
 	}
-	bucket, key := parseBucketKey(cfg.S3URL)
-	if bucket == "" || key == "" {
-		return nil, errors.New("must provide bucket")
-	}
-	if key == "" {
-		return nil, errors.New("must provide key")
-	}
-	return newAmazonSnapshotter(awsCfg, bucket, key)
+	return newAmazonSnapshotter(awsCfg, cfg.Bucket, cfg.Key)
 }
 
 func newAmazonSnapshotter(cfg *aws.Config, bucket, key string) (*AmazonSnapshotter, error) {

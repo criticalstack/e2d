@@ -2,52 +2,90 @@ package snapshot
 
 import (
 	"io"
+	"net/url"
+	"path/filepath"
 	"strings"
-)
 
-const (
-	FileProviderType   = "file://"
-	S3ProviderType     = "s3://"
-	SpacesProviderType = "digitaloceanspaces"
+	"github.com/pkg/errors"
 )
-
-var providerTypes = []string{
-	FileProviderType,
-	S3ProviderType,
-	SpacesProviderType,
-}
 
 type Snapshotter interface {
 	Load() (io.ReadCloser, error)
 	Save(io.ReadCloser) error
 }
 
+var schemes = []string{
+	"file://",
+	"s3://",
+	"http://",
+	"https://",
+}
+
+func hasValidScheme(url string) bool {
+	for _, s := range schemes {
+		if strings.HasPrefix(url, s) {
+			return true
+		}
+	}
+	return false
+}
+
+type Type int
+
+const (
+	FileType Type = iota
+	S3Type
+	SpacesType
+)
+
+type URL struct {
+	Type   Type
+	Bucket string
+	Path   string
+}
+
+var (
+	ErrInvalidScheme  = errors.New("invalid scheme")
+	ErrCannotParseURL = errors.New("cannot parse url")
+)
+
 // ParseSnapshotBackupURL deconstructs a uri into a type prefix and a bucket
 // example inputs and outputs:
 //   file://file                                -> file://, file
 //   s3://bucket                                -> s3://, bucket
 //   https://nyc3.digitaloceanspaces.com/bucket -> digitaloceanspaces, bucket
-func ParseSnapshotBackupURL(url string) (string, string) {
-	match := ""
-	for _, t := range providerTypes {
-		if strings.Contains(url, t) {
-			match = t
-			break
+func ParseSnapshotBackupURL(s string) (*URL, error) {
+	if !hasValidScheme(s) {
+		return nil, errors.Wrapf(ErrInvalidScheme, "url does not specify valid scheme: %#v", s)
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, err
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "file":
+		return &URL{
+			Type: FileType,
+			Path: filepath.Join(u.Host, u.Path),
+		}, nil
+	case "s3":
+		return &URL{
+			Type:   S3Type,
+			Bucket: u.Host,
+			Path:   u.Path,
+		}, nil
+	case "http", "https":
+		if strings.Contains(u.Host, "digitaloceanspaces") {
+			bucket, path := parseBucketKey(strings.TrimPrefix(u.Path, "/"))
+			return &URL{
+				Type:   SpacesType,
+				Bucket: bucket,
+				Path:   path,
+			}, nil
 		}
 	}
-	switch match {
-	case FileProviderType:
-		fallthrough
-	case S3ProviderType:
-		prefIndex := strings.Index(url, "://")
-		if prefIndex < 0 {
-			return "", url
-		}
-		return url[:prefIndex+len("://")], url[prefIndex+len("://"):]
-	case SpacesProviderType:
-		return SpacesProviderType, url[strings.LastIndex(url, "/")+1:]
-	}
-	return "", ""
+	return nil, errors.Wrap(ErrCannotParseURL, s)
 }
 
 func parseBucketKey(s string) (string, string) {
