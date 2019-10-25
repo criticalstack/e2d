@@ -28,32 +28,27 @@ archives:
     386: i386
     amd64: x86_64
 nfpms:
-  - name_template: '{{ .ProjectName }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
-    homepage:  https://github.com/criticalstack/e2d
-    description: Cloud-native etcd management
-    maintainer: criticalstack <dev@criticalstack.com>
-    license: Apache-2.0
-    vendor: criticalstack
-    bindir: "/usr/local/bin"
-    formats:
-    - deb
-    - rpm
-    conflicts:
-    - etcd
-    empty_folders:
-    - /etc/systemd/system/e2d.service.d
-    - /var/lib/etcd
-    files: 
-      deploy/e2d.service: /etc/systemd/system/e2d.service
-    config_files:
-      deploy/e2d.conf: /etc/e2d.conf
-    overrides:
-      deb:
-        replacements:
-          amd64: x86_64
-      rpm:
-        replacements:
-          amd64: x86_64
+- name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+  homepage:  https://github.com/criticalstack/e2d
+  description: Cloud-native etcd management
+  maintainer: criticalstack <dev@criticalstack.com>
+  license: Apache-2.0
+  vendor: criticalstack
+  bindir: "/usr/local/bin"
+  replacements:
+    amd64: x86_64
+  formats:
+  - deb
+  - rpm
+  conflicts:
+  - etcd
+  empty_folders:
+  - /etc/systemd/system/e2d.service.d
+  - /var/lib/etcd
+  files: 
+    deploy/e2d.service: /etc/systemd/system/e2d.service
+  config_files:
+    deploy/e2d.conf: /etc/e2d.conf
 checksum:
   name_template: 'checksums.txt'
 snapshot:
