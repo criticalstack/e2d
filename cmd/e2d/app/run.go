@@ -227,20 +227,21 @@ func getSnapshotProvider(o *runOptions) (snapshot.Snapshotter, error) {
 	if o.SnapshotBackupURL == "" {
 		return nil, nil
 	}
-	providerType, path := snapshot.ParseSnapshotBackupURL(o.SnapshotBackupURL)
-	if providerType == "" {
-		return nil, errors.Errorf("error parsing backup url %s (is it a full URL like s3://abc?)", o.SnapshotBackupURL)
+	u, err := snapshot.ParseSnapshotBackupURL(o.SnapshotBackupURL)
+	if err != nil {
+		return nil, err
 	}
 
-	switch providerType {
-	case snapshot.FileProviderType:
-		return snapshot.NewFileSnapshotter(path)
-	case snapshot.S3ProviderType:
+	switch u.Type {
+	case snapshot.FileType:
+		return snapshot.NewFileSnapshotter(u.Path)
+	case snapshot.S3Type:
 		return snapshot.NewAmazonSnapshotter(&snapshot.AmazonConfig{
 			RoleSessionName: o.AWSRoleSessionName,
-			S3URL:           o.SnapshotBackupURL,
+			Bucket:          u.Bucket,
+			Key:             u.Path,
 		})
-	case snapshot.SpacesProviderType:
+	case snapshot.SpacesType:
 		return snapshot.NewDigitalOceanSnapshotter(&snapshot.DigitalOceanConfig{
 			SpacesURL:       o.SnapshotBackupURL,
 			SpacesAccessKey: o.DOSpacesKey,

@@ -1,51 +1,69 @@
 package snapshot
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/pkg/errors"
 )
 
 func TestParseSnapshotBackupURL(t *testing.T) {
 	tests := []struct {
-		name string
-		in   string
-		want []string
+		name        string
+		url         string
+		expected    *URL
+		expectedErr error
 	}{
 		{
-			name: "empty",
-			in:   "",
-			want: []string{"", ""},
+			name:        "empty",
+			url:         "",
+			expected:    nil,
+			expectedErr: ErrInvalidScheme,
 		},
 		{
-			name: "file (empty)",
-			in:   "file://",
-			want: []string{"file://", ""},
+			name:     "file (empty)",
+			url:      "file://",
+			expected: &URL{Type: FileType},
 		},
 		{
-			name: "file",
-			in:   "file://abc",
-			want: []string{"file://", "abc"},
+			name:     "file",
+			url:      "file://abc",
+			expected: &URL{Type: FileType, Path: "abc"},
 		},
 		{
-			name: "file",
-			in:   "file:///abc",
-			want: []string{"file://", "/abc"},
+			name:     "file",
+			url:      "file://abc/snapshot.gz",
+			expected: &URL{Type: FileType, Path: "abc/snapshot.gz"},
 		},
 		{
-			name: "s3",
-			in:   "s3://abc",
-			want: []string{"s3://", "abc"},
+			name:     "file",
+			url:      "file:///abc",
+			expected: &URL{Type: FileType, Path: "/abc"},
 		},
 		{
-			name: "spaces",
-			in:   "https://nyc3.digitaloceanspaces.com/abc",
-			want: []string{"digitaloceanspaces", "abc"},
+			name:     "s3",
+			url:      "s3://abc",
+			expected: &URL{Type: S3Type, Bucket: "abc"},
+		},
+		{
+			name:     "spaces",
+			url:      "https://nyc3.digitaloceanspaces.com/abc",
+			expected: &URL{Type: SpacesType, Bucket: "abc", Path: "etcd.snapshot"},
+		},
+		{
+			name:     "spaces",
+			url:      "https://nyc3.digitaloceanspaces.com/abc/snapshot.gz",
+			expected: &URL{Type: SpacesType, Bucket: "abc", Path: "snapshot.gz"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if pref, stem := ParseSnapshotBackupURL(tt.in); !reflect.DeepEqual(pref, tt.want[0]) || !reflect.DeepEqual(stem, tt.want[1]) {
-				t.Errorf("parseSnapshotStore() = %v, %v, want %+v", pref, stem, tt.want)
+			u, err := ParseSnapshotBackupURL(tt.url)
+			if err != nil && errors.Cause(err) != tt.expectedErr {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tt.expected, u); diff != "" {
+				t.Errorf("snapshot: after Parse differs: (-want +got)\n%s", diff)
 			}
 		})
 	}

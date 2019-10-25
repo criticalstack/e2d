@@ -25,7 +25,6 @@ build: clean ## Build the e2d golang binary
 	$(GO_BUILD_ENV_VARS) go build -o bin/e2d $(GCFLAGS) ./cmd/e2d
 
 test: ## Run all tests
-	echo $(GOPROXY)
 	go test ./...
 
 test-manager: ## Test the manager package

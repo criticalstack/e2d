@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"net/url"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -19,7 +20,7 @@ func parseSpacesURL(s string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", err
 	}
-	bucket, key := parseBucketKey(u.Path)
+	bucket, key := parseBucketKey(strings.TrimPrefix(u.Path, "/"))
 	return u.Host, bucket, key, nil
 }
 
