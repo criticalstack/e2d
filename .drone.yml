@@ -25,7 +25,9 @@ pipeline:
     image: golang:latest
     secrets: 
       - github_token
-      - packagecloud_token
+    environment:
+      PACKAGECLOUD_TOKEN:
+        from_secret: packagecloud_token
     commands:
       - curl -sL https://git.io/goreleaser | bash
-      - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$packagecloud_token:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
+      - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
