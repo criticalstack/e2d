@@ -28,4 +28,4 @@ pipeline:
       - packagecloud_token
     commands:
       - curl -sL https://git.io/goreleaser | bash
-      - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$PKGCLOUD:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
+      - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$packagecloud_token:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
