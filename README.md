@@ -11,6 +11,7 @@ e2d is a command-line tool for deploying and managing etcd clusters, both in the
   - [Features](#features)
   - [Design](#design)
 - [Getting started](#getting-started)
+  - [Required ports](#required-ports)
 - [Configuration](#configuration)
   - [Peer discovery](#peer-discovery)
   - [Snapshots](#snapshots)
@@ -67,6 +68,19 @@ or specify a method for [peer discovery](#peer-discovery):
 ```bash
 $ e2d run -n 3 --peer-discovery aws-autoscaling-group
 ```
+
+### Required ports
+
+The same ports required by etcd are necessary, along with a couple new ones:
+
+| Port | Description |
+| --- | --- |
+| TCP/2379 | Required by etcd. Used for incoming client connections. This port should allow ingress from any system that will need to connect to etcd as a client. |
+| TCP/2380 | Required by etcd. Used by etcd members for internal etcd cluster communication. This port should be allowed only for systems that will be running e2d. |
+| UDP/7980 | Required by memberlist. Used for node-liveness checks and sharing membership data. |
+| TCP/7980 | Required by memberlist. Used for node-liveness checks and sharing membership data. |
+
+*Note: Hashicorp's [memberlist](https://github.com/hashicorp/memberlist) requires both TCP and UDP for port 7980 to allow memberlist to fully communicate.*
 
 ## Configuration
 
