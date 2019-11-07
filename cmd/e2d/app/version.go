@@ -11,16 +11,15 @@ import (
 )
 
 func newVersionCmd() *cobra.Command {
-	// TODO(chris): expose e2d version alongside of etcd version
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "etcd version",
 		Run: func(cmd *cobra.Command, args []string) {
 			data, err := json.Marshal(map[string]map[string]string{
-				"etcd": map[string]string{
+				"etcd": {
 					"Version": version.Version,
 				},
-				"e2d": map[string]string{
+				"e2d": {
 					"Version": buildinfo.Version,
 					"GitSHA":  buildinfo.GitSHA,
 				},
