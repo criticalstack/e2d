@@ -23,6 +23,10 @@ func newVersionCmd() *cobra.Command {
 					"Version": buildinfo.Version,
 					"GitSHA":  buildinfo.GitSHA,
 				},
+				"build": {
+					"Date":      buildinfo.Date,
+					"GoVersion": buildinfo.GoVersion,
+				},
 			})
 			if err != nil {
 				log.Fatal(err)

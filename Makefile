@@ -28,8 +28,9 @@ ifneq ($(GIT_TAG),)
 	VERSION = $(GIT_TAG)
 endif
 
-LDFLAGS += -X github.com/criticalstack/e2d/pkg/buildinfo.GitSHA=$(GIT_SHA)
-LDFLAGS += -X github.com/criticalstack/e2d/pkg/buildinfo.Version=$(VERSION)
+LDFLAGS += -X "github.com/criticalstack/e2d/pkg/buildinfo.Date=$(shell date -u +'%Y-%m-%dT%TZ')"
+LDFLAGS += -X "github.com/criticalstack/e2d/pkg/buildinfo.GitSHA=$(GIT_SHA)"
+LDFLAGS += -X "github.com/criticalstack/e2d/pkg/buildinfo.Version=$(VERSION)"
 GOFLAGS = -gcflags "all=-trimpath=$(PWD)" -asmflags "all=-trimpath=$(PWD)"
 
 GO_BUILD_ENV_VARS := GO111MODULE=on CGO_ENABLED=0
@@ -37,7 +38,7 @@ GO_BUILD_ENV_VARS := GO111MODULE=on CGO_ENABLED=0
 .PHONY: build test test-manager clean
 
 build: clean ## Build the e2d golang binary
-	@$(GO_BUILD_ENV_VARS) go build -o bin/e2d $(GOFLAGS) -ldflags '$(LDFLAGS)' ./cmd/e2d
+	$(GO_BUILD_ENV_VARS) go build -o bin/e2d $(GOFLAGS) -ldflags '$(LDFLAGS)' ./cmd/e2d
 
 test: ## Run all tests
 	go test ./...
