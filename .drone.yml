@@ -1,31 +1,35 @@
-workspace:
-  base: /go
-  path: github.com/criticalstack/e2d
+kind: pipeline
+type: docker
+name: default
 
-clone:
-  git:
-    image: plugins/git
-    tags: true
+steps:
+- name: fetch
+  image: alpine/git
+  commands:
+  - git fetch --tags
 
-pipeline:
-  testing:
-    image: golang:latest
-    commands:
-    - make test
+- name: testing
+  image: golang:1.13
+  commands:
+  - make test
 
-  lint:
-    image: golang:latest
-    commands:
-    - make lint
+- name: lint
+  image: golang:1.13
+  commands:
+  - make lint
 
-  release:
-    when:
-      event:
-        - tag
-    image: golang:latest
-    secrets: 
-      - github_token
-      - packagecloud_token
-    commands:
-      - curl -sL https://git.io/goreleaser | bash
-      - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
+- name: release
+  image: golang:1.13
+  when:
+    branch:
+    - master
+    event:
+    - tag
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
+    PACKAGECLOUD_TOKEN:
+      from_secret: packagecloud_token
+  commands:
+  - curl -sL https://git.io/goreleaser | bash
+  - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
