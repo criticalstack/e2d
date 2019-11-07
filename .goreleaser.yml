@@ -20,6 +20,11 @@ builds:
     - all=-trimpath={{.Env.GOPATH}}
   asmflags:
     - all=-trimpath={{.Env.GOPATH}}
+  ldflags:
+     - -s -w
+     - -X github.com/criticalstack/e2d/pkg/buildinfo.Version={{.Tag}}
+     - -X github.com/criticalstack/e2d/pkg/buildinfo.GitSHA={{.ShortCommit}}
+     - -X github.com/criticalstack/e2d/pkg/buildinfo.Date={{.Date}}
 archives:
 - replacements:
     darwin: Darwin

@@ -16,13 +16,28 @@ BIN_DIR := bin
 GOLANGCI_LINT := $(TOOLS_BIN_DIR)/golangci-lint
 
 # Golang build env
-GCFLAGS = -gcflags "all=-trimpath=$(PWD)" -asmflags "all=-trimpath=$(PWD)"
+LDFLAGS := -s -w
+
+GIT_BRANCH = $(shell git rev-parse --abbrev-ref HEAD | sed 's/\///g')
+GIT_COMMIT = $(shell git rev-parse HEAD)
+GIT_SHA    = $(shell git rev-parse --short HEAD)
+GIT_TAG    = $(shell git describe --tags --abbrev=0 --exact-match 2>/dev/null)
+
+VERSION = $(GIT_BRANCH).$(GIT_SHA)
+ifneq ($(GIT_TAG),)
+	VERSION = $(GIT_TAG)
+endif
+
+LDFLAGS += -X github.com/criticalstack/e2d/pkg/buildinfo.GitSHA=$(GIT_SHA)
+LDFLAGS += -X github.com/criticalstack/e2d/pkg/buildinfo.Version=$(VERSION)
+GOFLAGS = -gcflags "all=-trimpath=$(PWD)" -asmflags "all=-trimpath=$(PWD)"
+
 GO_BUILD_ENV_VARS := GO111MODULE=on CGO_ENABLED=0
 
 .PHONY: build test test-manager clean
 
 build: clean ## Build the e2d golang binary
-	$(GO_BUILD_ENV_VARS) go build -o bin/e2d $(GCFLAGS) ./cmd/e2d
+	@$(GO_BUILD_ENV_VARS) go build -o bin/e2d $(GOFLAGS) -ldflags '$(LDFLAGS)' ./cmd/e2d
 
 test: ## Run all tests
 	go test ./...
