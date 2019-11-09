@@ -52,8 +52,6 @@ nfpms:
   - /var/lib/etcd
   files: 
     deploy/e2d.service: /etc/systemd/system/e2d.service
-  config_files:
-    deploy/e2d.conf: /etc/e2d.conf
 checksum:
   name_template: 'checksums.txt'
 snapshot:
