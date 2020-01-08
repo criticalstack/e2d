@@ -114,9 +114,9 @@ func (c *Client) GetAddressesByTag(ctx context.Context, kvs map[string]string) (
 		Filters: filters,
 	}, func(page *ec2.DescribeTagsOutput, lastPage bool) bool {
 		for _, tag := range page.Tags {
-			//if tag.ResourceType != "ec2" {
-			//continue
-			//}
+			if aws.StringValue(tag.ResourceType) != ec2.ResourceTypeInstance {
+				continue
+			}
 			instances = append(instances, aws.StringValue(tag.ResourceId))
 		}
 		return !lastPage
