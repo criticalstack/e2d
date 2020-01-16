@@ -70,6 +70,9 @@ func ParseSnapshotBackupURL(s string) (*URL, error) {
 			Path: filepath.Join(u.Host, u.Path),
 		}, nil
 	case "s3":
+		if u.Path == "" {
+			u.Path = "etcd.snapshot"
+		}
 		return &URL{
 			Type:   S3Type,
 			Bucket: u.Host,
