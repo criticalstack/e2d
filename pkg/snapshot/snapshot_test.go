@@ -43,7 +43,17 @@ func TestParseSnapshotBackupURL(t *testing.T) {
 		{
 			name:     "s3",
 			url:      "s3://abc",
-			expected: &URL{Type: S3Type, Bucket: "abc"},
+			expected: &URL{Type: S3Type, Bucket: "abc", Path: "etcd.snapshot"},
+		},
+		{
+			name:     "s3",
+			url:      "s3://abc/snapshot.gz",
+			expected: &URL{Type: S3Type, Bucket: "abc", Path: "snapshot.gz"},
+		},
+		{
+			name:     "s3",
+			url:      "s3://abc/backupdir/snapshot.gz",
+			expected: &URL{Type: S3Type, Bucket: "abc", Path: "backupdir/snapshot.gz"},
 		},
 		{
 			name:     "spaces",
