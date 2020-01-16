@@ -76,7 +76,7 @@ func ParseSnapshotBackupURL(s string) (*URL, error) {
 		return &URL{
 			Type:   S3Type,
 			Bucket: u.Host,
-			Path:   u.Path,
+			Path:   strings.TrimPrefix(u.Path, "/"),
 		}, nil
 	case "http", "https":
 		if strings.Contains(u.Host, "digitaloceanspaces") {
