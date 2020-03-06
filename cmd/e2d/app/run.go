@@ -63,17 +63,17 @@ func newRunCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			peerGetter, err := getPeerGetter(o)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("%+v", err)
 			}
 
 			baddrs, err := getInitialBootstrapAddrs(o, peerGetter)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("%+v", err)
 			}
 
 			snapshotter, err := getSnapshotProvider(o)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("%+v", err)
 			}
 
 			m, err := manager.New(&manager.Config{
