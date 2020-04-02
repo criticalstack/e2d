@@ -1,6 +1,9 @@
 package e2db
 
 import (
+	"bytes"
+	"crypto/sha512"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -18,8 +21,10 @@ type Config struct {
 	Namespace        string
 	Timeout          time.Duration
 	AutoSyncInterval time.Duration
+	SecretKey        []byte
 
 	clientURL      url.URL
+	key            *[32]byte
 	securityConfig client.SecurityConfig
 }
 
@@ -39,6 +44,17 @@ func (c *Config) validate() error {
 			TrustedCAFile: c.CAFile,
 			CertAuth:      true,
 		}
+	}
+	if len(c.SecretKey) != 0 {
+		h := sha512.New512_256()
+		if _, err := h.Write(c.SecretKey); err != nil {
+			return err
+		}
+		key := [32]byte{}
+		if _, err := io.ReadFull(bytes.NewReader(h.Sum(nil)), key[:]); err != nil {
+			return err
+		}
+		c.key = &key
 	}
 	caddr, err := netutil.ParseAddr(c.ClientAddr)
 	if err != nil {

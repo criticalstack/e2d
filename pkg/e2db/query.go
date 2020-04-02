@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/e2db/crypto"
 	"github.com/criticalstack/e2d/pkg/e2db/key"
 	"github.com/criticalstack/e2d/pkg/e2db/q"
 	"github.com/criticalstack/e2d/pkg/log"
@@ -76,6 +77,30 @@ func (q *query) Skip(i int) Query {
 	return q
 }
 
+func (q *query) handleItemTags(v reflect.Value) error {
+	m := NewModelItem(v)
+	for _, f := range m.Fields {
+		for _, tag := range f.Tags {
+			switch tag.Name {
+			case "encrypted":
+				dec, err := crypto.Decrypt([]byte(toString(f.value.Interface())), q.t.db.cfg.key)
+				if err != nil {
+					return err
+				}
+				switch f.value.Interface().(type) {
+				case string:
+					f.value.Set(reflect.ValueOf([]byte(dec)))
+				case []byte:
+					f.value.Set(reflect.ValueOf(dec))
+				default:
+					panic(errors.Errorf("type %T cannot be encrypted, only string, []byte", f.value.Interface()))
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (q *query) findOneByPrimaryKey(key string, v reflect.Value) error {
 	value, err := q.t.db.client.Get(key)
 	if err != nil {
@@ -84,14 +109,20 @@ func (q *query) findOneByPrimaryKey(key string, v reflect.Value) error {
 		}
 		return err
 	}
-	return q.t.c.Decode(value, v.Addr().Interface())
+	if err := q.t.c.Decode(value, v.Addr().Interface()); err != nil {
+		return err
+	}
+	if err := q.handleItemTags(v); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (q *query) findOneByUniqueIndex(key string, v reflect.Value) error {
 	pk, err := q.t.db.client.Get(key)
 	if err != nil {
 		if errors.Cause(err) == client.ErrKeyNotFound {
-			return errors.Wrapf(ErrNoRows, "findOneByIndex: %#v", key)
+			return errors.Wrapf(ErrNoRows, "findOneByUniqueIndex: %#v", key)
 		}
 		return err
 	}
@@ -102,7 +133,7 @@ func (q *query) findOneBySecondaryIndex(key string, v reflect.Value) error {
 	kvs, err := q.t.db.client.Prefix(key)
 	if err != nil {
 		if errors.Cause(err) == client.ErrKeyNotFound {
-			return errors.Wrapf(ErrNoRows, "findOneByIndex: %#v", key)
+			return errors.Wrapf(ErrNoRows, "findOneBySecondaryIndex: %#v", key)
 		}
 		return err
 	}
@@ -126,17 +157,21 @@ func (q *query) findManyByIndex(key string, v reflect.Value) error {
 		if err := q.findOneByPrimaryKey(string(kv.Value), reflect.Indirect(item)); err != nil {
 			return err
 		}
+		el := item.Elem()
+		if err := q.handleItemTags(el); err != nil {
+			return err
+		}
 		if len(q.matchers) == 0 {
-			v.Set(reflect.Append(v, item.Elem()))
+			v.Set(reflect.Append(v, el))
 			continue
 		}
 		for _, m := range q.matchers {
-			ok, err := m.Match(item.Elem())
+			ok, err := m.Match(el)
 			if err != nil {
 				return err
 			}
 			if ok {
-				v.Set(reflect.Append(v, item.Elem()))
+				v.Set(reflect.Append(v, el))
 			}
 		}
 	}
@@ -167,8 +202,12 @@ func (q *query) findAll(table string, v reflect.Value) error {
 		if err := q.t.c.Decode(kv.Value, item.Interface()); err != nil {
 			return err
 		}
+		el := item.Elem()
+		if err := q.handleItemTags(el); err != nil {
+			return err
+		}
 		if len(q.matchers) == 0 {
-			v.Set(reflect.Append(v, item.Elem()))
+			v.Set(reflect.Append(v, el))
 			continue
 		}
 		for _, m := range q.matchers {
@@ -177,10 +216,10 @@ func (q *query) findAll(table string, v reflect.Value) error {
 				return err
 			}
 			if ok {
-				v.Set(reflect.Append(v, item.Elem()))
+				v.Set(reflect.Append(v, el))
 			}
 		}
-		v.Set(reflect.Append(v, item.Elem()))
+		v.Set(reflect.Append(v, el))
 	}
 	if v.Len() == 0 {
 		return ErrNoRows
@@ -235,7 +274,7 @@ func (q *query) Find(fieldName string, data interface{}, to interface{}) error {
 		log.Debug("query.Find",
 			zap.String("key", fmt.Sprintf("%s/%v", q.t.meta.Name, fieldName)),
 			zap.String("q", toString(data)),
-			zap.Duration("elapsed", time.Now().Sub(st)),
+			zap.Duration("elapsed", time.Since(st)),
 		)
 	}()
 	if err := q.t.tableMustExist(); err != nil {

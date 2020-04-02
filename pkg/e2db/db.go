@@ -2,7 +2,7 @@ package e2db
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha512"
 	"reflect"
 	"time"
 
@@ -53,27 +53,33 @@ func (db *DB) Close() {
 	db.client.Close()
 }
 
-// XXX(chris):
-func (db *DB) DumpKeys() error {
-	kvs, err := db.client.Prefix("/")
-	if err != nil {
-		return err
-	}
-	for _, kv := range kvs {
-		fmt.Printf("%s\n", kv.Key)
-	}
-	return nil
-}
-
 func (db *DB) Lock(name string, timeout time.Duration) (context.CancelFunc, error) {
 	return db.client.Lock(name, timeout)
 }
 
-func (db *DB) Table(iface interface{}) *Table {
+type TableOptions struct {
+	Encrypted bool
+}
+
+type TableOption func(*Table)
+
+func WithEncryption(secretKey []byte) TableOption {
+	return func(t *Table) {
+		key := [32]byte{}
+		copy(key[:], sha512.New512_256().Sum(secretKey))
+		t.c = &encryptedGobCodec{key: &key}
+	}
+}
+
+func (db *DB) Table(iface interface{}, options ...TableOption) *Table {
 	t := &Table{
 		db:   db,
 		c:    &gobCodec{},
+		tc:   &gobCodec{},
 		meta: NewModelDef(reflect.TypeOf(iface)),
+	}
+	for _, opt := range options {
+		opt(t)
 	}
 	return t
 }
