@@ -46,7 +46,10 @@ func NewAmazonSnapshotter(cfg *AmazonConfig) (*AmazonSnapshotter, error) {
 }
 
 func newAmazonSnapshotter(cfg *aws.Config, bucket, key string) (*AmazonSnapshotter, error) {
-	sess := session.New(cfg)
+	sess, err := session.NewSession(cfg)
+	if err != nil {
+		return nil, err
+	}
 	s := &AmazonSnapshotter{
 		S3:         s3.New(sess),
 		Downloader: s3manager.NewDownloader(sess),
@@ -59,7 +62,7 @@ func newAmazonSnapshotter(cfg *aws.Config, bucket, key string) (*AmazonSnapshott
 	req, _ := s.HeadBucketRequest(&s3.HeadBucketInput{
 		Bucket: aws.String(s.bucket),
 	})
-	err := req.Send()
+	err = req.Send()
 	if err != nil {
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			switch reqErr.StatusCode() {

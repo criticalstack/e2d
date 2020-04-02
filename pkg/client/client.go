@@ -118,7 +118,6 @@ func (c *Client) MustGet(ctx context.Context, key string) ([]byte, error) {
 			return nil, ctx.Err()
 		}
 	}
-	return nil, ErrKeyNotFound
 }
 
 func (c *Client) Set(key, value string) error {

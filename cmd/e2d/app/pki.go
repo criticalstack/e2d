@@ -156,7 +156,7 @@ func newCertificateRequest(commonName string, hosts ...string) *csr.CertificateR
 				L:  "MA",
 			},
 		},
-		KeyRequest: &csr.BasicKeyRequest{
+		KeyRequest: &csr.KeyRequest{
 			A: "rsa",
 			S: 2048,
 		},

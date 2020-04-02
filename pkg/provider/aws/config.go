@@ -19,7 +19,10 @@ import (
 )
 
 func NewConfig() (*aws.Config, error) {
-	sess := session.New()
+	sess, err := session.NewSession()
+	if err != nil {
+		return nil, err
+	}
 	doc, err := ec2metadata.New(sess).GetInstanceIdentityDocument()
 	if err != nil {
 		return nil, err
@@ -70,7 +73,10 @@ func NewConfigWithRoleSession(name string) (*aws.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	sess := session.New(cfg)
+	sess, err := session.NewSession(cfg)
+	if err != nil {
+		return nil, err
+	}
 	arn, err := getRoleNameFromInstanceMetadata(sess)
 	if err != nil {
 		return nil, err
