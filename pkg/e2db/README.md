@@ -21,6 +21,7 @@ e2db is an experimental abstraction layer built on top of etcd providing an ORM-
   - [Transactions](#transactions)
   - [Query filtering](#query-filtering)
   - [Distributed locks](#distributed-locks)
+  - [Table encryption](#table-encryption)
 
 ## Getting Started
 
@@ -261,3 +262,55 @@ func syncSomething() error {
     return nil
 }
 ```
+
+An easier way to coordinate with distributed locks is simply racing for new object creation. This ends up being very useful in situations where, for example, you have multiple machines that need to share the same TLS cert/key pair for a web application. Something like this could be done to ensure that only the first machine that won the race for the lock will generate the TLS cert/key and then store that in e2db for the other instances to use:
+
+```go
+type SharedFile struct {
+    Path string `e2db:"id"`
+    Mode os.FileMode
+    Data []byte
+}
+
+err := db.Table(new(SharedFile)).Tx(func(tx *e2db.Tx) error {
+    var files []*Files
+    if err := tx.All(&files); err != nil {
+        if errors.Cause(err) != e2db.ErrNoRows {
+            return err
+        }
+
+        // If this is the first machine the TLS cert/key files won't exist, so
+        // we must create them. This will only ever happen once.
+        cert, key, err := generateTLS()
+        if err != nil {
+            return err
+        }
+        files = append(files, &SharedFile{"/tls.crt", 0600, cert})
+        files = append(files, &SharedFile{"/tls.key", 0600, key})
+    }
+
+    // write the files to disk and insert into the SharedFile table
+    for _, f := range files {
+        if err := tx.Insert(f); err != nil {
+            return err
+        }
+        if err := ioutil.WriteFile(f.Path, f.Data, f.Mode); err != nil {
+            return err
+        }
+    }
+    return nil
+})
+```
+
+### Table encryption
+
+Table objects can optionally be encrypted with AES-256 GCM.
+
+```go
+err := db.Table(new(User), e2db.WithEncryption("mySecretKey"))
+```
+
+This will encrypt any objects that are stored in this table, however, there are few caveats for usage:
+ * No table metadata is stored to distinguish between encrypted/unecrypted objects, so one must be careful when setting up table encryption on a client.
+ * Table metadata and indexes are not encrypted. The object is encrypted/signed with strong encryption, but the table metadata is plaintext and indexes are non-cryptographically hashed. Indexes in e2db use sha512-256, so while not plaintext, they are not cryptographically secure. This just means that using tags like index or unique should not be used on data that should be kept secret.
+ * This feature is only helpful in very very specific use cases. Standard encryption-at-rest procedures should be considered before using e2db table encryption.

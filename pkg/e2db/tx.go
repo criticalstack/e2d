@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/e2db/crypto"
 	"github.com/criticalstack/e2d/pkg/e2db/key"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/pkg/errors"
@@ -113,6 +114,24 @@ func (tx *Tx) Insert(iface interface{}) error {
 				}
 				indexes = append(indexes, k)
 			}
+			if f.hasTag("encrypted") {
+				if tx.db.cfg.key == nil {
+					return errors.New("encryption key is not set")
+				}
+				enc, err := crypto.Encrypt([]byte(toString(f.value.Interface())), tx.db.cfg.key)
+				if err != nil {
+					return err
+				}
+				switch f.value.Interface().(type) {
+				case string:
+					f.value.Set(reflect.ValueOf([]byte(enc)))
+				case []byte:
+					f.value.Set(reflect.ValueOf(enc))
+				default:
+					// TODO(chrism): move this to at model load
+					panic(errors.Errorf("type %T cannot be encrypted, only string, []byte", f.value.Interface()))
+				}
+			}
 		}
 	}
 	data, err := tx.c.Encode(iface)
@@ -163,6 +182,24 @@ func (tx *Tx) Update(iface interface{}) error {
 		// already set
 		if f.hasTag("required") && f.isZero() {
 			continue
+		}
+		if f.hasTag("encrypted") {
+			if tx.db.cfg.key == nil {
+				return errors.New("encryption key is not set")
+			}
+			enc, err := crypto.Encrypt([]byte(toString(f.value.Interface())), tx.db.cfg.key)
+			if err != nil {
+				return err
+			}
+			switch f.value.Interface().(type) {
+			case string:
+				f.value = reflect.ValueOf([]byte(enc))
+			case []byte:
+				f.value = reflect.ValueOf(enc)
+			default:
+				// TODO(chrism): move this to at model load
+				panic(errors.Errorf("type %T cannot be encrypted, only string, []byte", f.value.Interface()))
+			}
 		}
 		for _, tag := range f.Tags {
 			switch tag.Name {
@@ -241,7 +278,7 @@ func (tx *Tx) Delete(fieldName string, data interface{}) (int64, error) {
 			zap.String("key", fmt.Sprintf("%s/%v", tx.meta.Name, fieldName)),
 			zap.String("q", toString(data)),
 			zap.Int64("n", n),
-			zap.Duration("elapsed", time.Now().Sub(st)),
+			zap.Duration("elapsed", time.Since(st)),
 		)
 	}()
 	f, ok := tx.meta.Fields[fieldName]
@@ -322,7 +359,7 @@ func (tx *Tx) Drop() error {
 		return err
 	}
 	var m *ModelDef
-	if err := tx.c.Decode(v, &m); err != nil {
+	if err := tx.tc.Decode(v, &m); err != nil {
 		return err
 	}
 	if err := tx.validateModel(m); err != nil {

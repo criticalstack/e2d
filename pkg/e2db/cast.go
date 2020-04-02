@@ -43,6 +43,8 @@ func toString(data interface{}) string {
 		return strconv.FormatInt(int64(t), 10)
 	case uint64:
 		return strconv.FormatInt(int64(t), 10)
+	case []byte:
+		return string(t)
 	default:
 		panic(errors.Errorf("unknown type: %T", data))
 	}

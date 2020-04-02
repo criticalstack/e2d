@@ -16,6 +16,7 @@ var _ Query = (*Table)(nil)
 type Table struct {
 	db   *DB
 	c    Codec
+	tc   Codec
 	meta *ModelDef
 }
 
@@ -39,7 +40,7 @@ func (t *Table) tableMustExist() error {
 		return err
 	}
 	if errors.Cause(err) == client.ErrKeyNotFound {
-		data, err := t.c.Encode(t.meta)
+		data, err := t.tc.Encode(t.meta)
 		if err != nil {
 			return err
 		}
@@ -50,7 +51,7 @@ func (t *Table) tableMustExist() error {
 	}
 
 	var m *ModelDef
-	if err := t.c.Decode(v, &m); err != nil {
+	if err := t.tc.Decode(v, &m); err != nil {
 		return err
 	}
 	return t.validateModel(m)

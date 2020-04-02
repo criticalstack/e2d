@@ -1,6 +1,7 @@
 package e2db
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -318,5 +319,96 @@ func TestNestedFieldQuery(t *testing.T) {
 				t.Fatalf("expected %d result(s), got %d", c.expected, n)
 			}
 		})
+	}
+}
+
+func TestEncryptedTable(t *testing.T) {
+	db, err := New(&Config{
+		ClientAddr: ":2479",
+		Namespace:  "encrypted",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	roles := db.Table(&Role{})
+	rolesEncrypted := db.Table(&Role{}, WithEncryption([]byte("secret")))
+	if err := rolesEncrypted.Insert(&Role{Name: "user", Description: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	var r Role
+	if err := roles.Find("ID", 1, &r); err == nil {
+		t.Fatalf("expected err decrypting role: %v", r)
+	}
+	if err := rolesEncrypted.Find("Name", "user", &r); err != nil {
+		time.Sleep(1 * time.Second)
+		t.Fatal(err)
+	}
+	if err := rolesEncrypted.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
+		t.Fatal(err)
+	}
+	expected := &Role{ID: 1, Name: "user", Description: "user"}
+	if diff := cmp.Diff(expected, &r); diff != "" {
+		t.Errorf("e2db: after Find differs: (-want +got)\n%s", diff)
+	}
+	time.Sleep(1 * time.Second)
+}
+
+type Cert struct {
+	Path        string `e2db:"id"`
+	Description string `e2db:"index"`
+	Data        []byte `e2db:"encrypted"`
+}
+
+func TestEncryptedField(t *testing.T) {
+	db, err := New(&Config{
+		ClientAddr: ":2479",
+		Namespace:  "criticalstack",
+		SecretKey:  []byte("secret"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	certs := db.Table(&Cert{})
+	cert := &Cert{Path: "ca.crt", Description: "cluster cert", Data: []byte("secret data")}
+	if err := certs.Insert(cert); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(cert.Data, []byte("ENCRYPTED:")) {
+		t.Fatalf("field was not encrypted: %+v", cert)
+	}
+	var c Cert
+	if err := certs.Find("Description", "cluster cert", &c); err != nil {
+		time.Sleep(1 * time.Second)
+		t.Fatal(err)
+	}
+	expected := &Cert{Path: "ca.crt", Description: "cluster cert", Data: []byte("secret data")}
+	if diff := cmp.Diff(expected, &c); diff != "" {
+		t.Errorf("e2db: after Find differs: (-want +got)\n%s", diff)
+	}
+	var cc []*Cert
+	if err := certs.All(&cc); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(expected, cc[0]); diff != "" {
+		t.Errorf("e2db: after Find differs: (-want +got)\n%s", diff)
+	}
+	c.Description = "updated cert"
+	c.Data = []byte("updated secret")
+	if err := certs.Update(c); err != nil {
+		t.Fatal(err)
+	}
+	c = Cert{}
+	err = certs.Find("Description", "updated cert", &c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected = &Cert{Path: "ca.crt", Description: "updated cert", Data: []byte("updated secret")}
+	if diff := cmp.Diff(expected, &c); diff != "" {
+		t.Errorf("e2db: after Update differs: (-want +got)\n%s", diff)
+	}
+	if err := certs.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
+		t.Fatal(err)
 	}
 }
