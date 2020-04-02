@@ -943,7 +943,7 @@ func writeTestingCerts() error {
 				L:  "MA",
 			},
 		},
-		KeyRequest: &csr.BasicKeyRequest{
+		KeyRequest: &csr.KeyRequest{
 			A: "rsa",
 			S: 2048,
 		},
@@ -968,7 +968,7 @@ func writeTestingCerts() error {
 				L:  "MA",
 			},
 		},
-		KeyRequest: &csr.BasicKeyRequest{
+		KeyRequest: &csr.KeyRequest{
 			A: "rsa",
 			S: 2048,
 		},
@@ -993,7 +993,7 @@ func writeTestingCerts() error {
 				L:  "MA",
 			},
 		},
-		KeyRequest: &csr.BasicKeyRequest{
+		KeyRequest: &csr.KeyRequest{
 			A: "rsa",
 			S: 2048,
 		},

@@ -167,9 +167,9 @@ func parsePeerDiscovery(s string) (string, []discovery.KeyValue) {
 		parts := strings.SplitN(pair, "=", 2)
 		switch len(parts) {
 		case 1:
-			kvs = append(kvs, discovery.KeyValue{parts[0], ""})
+			kvs = append(kvs, discovery.KeyValue{Key: parts[0], Value: ""})
 		case 2:
-			kvs = append(kvs, discovery.KeyValue{parts[0], parts[1]})
+			kvs = append(kvs, discovery.KeyValue{Key: parts[0], Value: parts[1]})
 		}
 	}
 	return parts[0], kvs

@@ -20,7 +20,10 @@ type Client struct {
 }
 
 func NewClient(cfg *aws.Config) (*Client, error) {
-	sess := session.New(cfg)
+	sess, err := session.NewSession(cfg)
+	if err != nil {
+		return nil, err
+	}
 	c := &Client{
 		AutoScaling: autoscaling.New(sess),
 		EC2:         ec2.New(sess),

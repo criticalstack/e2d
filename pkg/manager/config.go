@@ -211,9 +211,6 @@ func (c *Config) validate() error {
 		}
 		c.gossipSecretKey = key[:]
 		c.snapshotEncryptionKey = &key
-		if err != nil {
-			return err
-		}
 	}
 
 	if c.SnapshotEncryption && c.CAKeyFile == "" {

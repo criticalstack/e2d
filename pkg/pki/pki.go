@@ -166,7 +166,7 @@ func NewDefaultRootCA() (*RootCA, error) {
 				O:  "Critical Stack",
 			},
 		},
-		KeyRequest: &csr.BasicKeyRequest{
+		KeyRequest: &csr.KeyRequest{
 			A: "rsa",
 			S: 2048,
 		},
