@@ -7,13 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
+	"go.uber.org/zap"
+
 	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/criticalstack/e2d/pkg/e2db/crypto"
 	"github.com/criticalstack/e2d/pkg/e2db/key"
 	"github.com/criticalstack/e2d/pkg/e2db/q"
 	"github.com/criticalstack/e2d/pkg/log"
-	"github.com/pkg/errors"
-	"go.uber.org/zap"
 )
 
 var (

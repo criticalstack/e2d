@@ -8,15 +8,18 @@ import (
 	"os"
 	"time"
 
-	"github.com/criticalstack/e2d/pkg/client"
-	"github.com/criticalstack/e2d/pkg/log"
-	"github.com/criticalstack/e2d/pkg/snapshot"
-	snapshotutil "github.com/criticalstack/e2d/pkg/snapshot/util"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/lease"
 	"go.etcd.io/etcd/mvcc"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+
+	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/log"
+	"github.com/criticalstack/e2d/pkg/manager/e2dpb"
+	"github.com/criticalstack/e2d/pkg/snapshot"
+	snapshotutil "github.com/criticalstack/e2d/pkg/snapshot/util"
 )
 
 // Manager manages an embedded etcd instance.
@@ -87,6 +90,9 @@ func New(cfg *Config) (*Manager, error) {
 		}
 		return nil
 	})
+	m.etcd.cfg.ServiceRegister = func(s *grpc.Server) {
+		e2dpb.RegisterManagerServer(s, &ManagerService{m})
+	}
 	return m, nil
 }
 
@@ -120,6 +126,17 @@ func (m *Manager) GracefulStop() {
 	}
 }
 
+func (m *Manager) Restart() error {
+	peers := make([]*Peer, 0)
+	for _, member := range m.etcd.Etcd.Server.Cluster().Members() {
+		if len(member.PeerURLs) == 0 {
+			continue
+		}
+		peers = append(peers, &Peer{member.Name, member.PeerURLs[0]})
+	}
+	return m.etcd.restart(peers)
+}
+
 func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
 	if m.snapshotter == nil {
 		return false, nil
@@ -130,6 +147,7 @@ func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
 		return false, err
 	}
 	defer r.Close()
+
 	log.Debugf("[%v]: attempting snapshot restore with members: %s", shortName(m.cfg.Name), peers)
 	tmpFile, err := ioutil.TempFile("", "snapshot.load")
 	if err != nil {
@@ -230,6 +248,7 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 		return err
 	}
 	defer c.Close()
+
 	members, err := c.members(ctx)
 	if err != nil {
 		return err
@@ -264,6 +283,7 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 		return err
 	}
 	defer unlock()
+
 	member, err := c.addMember(ctx, m.cfg.PeerURL.String())
 	if err != nil {
 		return err
@@ -347,8 +367,8 @@ func (m *Manager) runMembershipCleanup() {
 		case ev := <-m.gossip.Events():
 			log.Debugf("[%v]: received membership event: %v", shortName(m.cfg.Name), ev)
 
-			// When this members gossip network does not have enough members to
-			// be considered a majority, it is no longer eligible to affect
+			// When this member's gossip network does not have enough members
+			// to be considered a majority, it is no longer eligible to affect
 			// cluster membership. This helps ensure that when a network
 			// partition takes place that minority partition(s) will not
 			// attempt to change cluster membership. Only members in Running
@@ -426,6 +446,10 @@ func (m *Manager) runSnapshotter() {
 	for {
 		select {
 		case <-ticker.C:
+			if m.etcd.isRestarting() {
+				log.Debug("server is restarting, skipping snapshot backup")
+				continue
+			}
 			if !m.etcd.isLeader() {
 				log.Debug("not leader, skipping snapshot backup")
 				continue
@@ -497,22 +521,28 @@ func (m *Manager) Run() error {
 	go m.runMembershipCleanup()
 	go m.runSnapshotter()
 
-	select {
-	case <-m.etcd.Server.StopNotify():
-		log.Info("etcd server stopping ...",
-			zap.Stringer("id", m.etcd.Server.ID()),
-			zap.String("name", m.cfg.Name),
-		)
-		if m.cfg.RequiredClusterSize == 1 {
+	for {
+		select {
+		case <-m.etcd.Server.StopNotify():
+			log.Info("etcd server stopping ...",
+				zap.Stringer("id", m.etcd.Server.ID()),
+				zap.String("name", m.cfg.Name),
+			)
+			if m.etcd.isRestarting() {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			if m.cfg.RequiredClusterSize == 1 {
+				return nil
+			}
+			if err := m.gossip.Update(Unknown); err != nil {
+				log.Debugf("[%v]: cannot update member metadata: %v", m.cfg.Name, err)
+			}
+			return nil
+		case err := <-m.etcd.Err():
+			return err
+		case <-m.ctx.Done():
 			return nil
 		}
-		if err := m.gossip.Update(Unknown); err != nil {
-			log.Debugf("[%v]: cannot update member metadata: %v", m.cfg.Name, err)
-		}
-		return nil
-	case err := <-m.etcd.Err():
-		return err
-	case <-m.ctx.Done():
-		return nil
 	}
 }

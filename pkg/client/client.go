@@ -7,18 +7,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/clientv3/concurrency"
 	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"go.etcd.io/etcd/mvcc/mvccpb"
 	"go.uber.org/zap"
+
+	"github.com/criticalstack/e2d/pkg/log"
 )
 
-var (
-	ErrKeyNotFound = errors.New("key not found")
-)
+var ErrKeyNotFound = errors.New("key not found")
 
 type Client struct {
 	*clientv3.Client
@@ -62,6 +61,7 @@ func New(cfg *Config) (*Client, error) {
 func (c *Client) get(key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.Timeout)
 	defer cancel()
+
 	resp, err := c.Client.Get(ctx, key, opts...)
 	if err != nil {
 		return nil, err
@@ -123,6 +123,7 @@ func (c *Client) MustGet(ctx context.Context, key string) ([]byte, error) {
 func (c *Client) Set(key, value string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.Timeout)
 	defer cancel()
+
 	_, err := c.Client.Put(ctx, key, value)
 	return err
 }
@@ -173,6 +174,7 @@ func (c *Client) Lock(key string, timeout time.Duration) (context.CancelFunc, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
 	mutex := concurrency.NewMutex(session, filepath.Join(key, "lock"))
 	if err := mutex.Lock(ctx); err != nil {
 		session.Close()
@@ -193,6 +195,7 @@ func (c *Client) Incr(key string, timeout time.Duration) (int64, error) {
 		return 0, err
 	}
 	defer unlock()
+
 	id, err := c.GetN(key)
 	if err != nil && errors.Cause(err) != ErrKeyNotFound {
 		return 0, err
@@ -207,6 +210,7 @@ func (c *Client) Incr(key string, timeout time.Duration) (int64, error) {
 func (c *Client) IsHealthy(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
+
 	_, err := c.Client.Get(ctx, "health", clientv3.WithSerializable())
 	if err == nil || err == rpctypes.ErrPermissionDenied || err == rpctypes.ErrGRPCCompacted {
 		return nil

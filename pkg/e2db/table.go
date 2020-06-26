@@ -3,10 +3,11 @@ package e2db
 import (
 	"reflect"
 
+	"github.com/pkg/errors"
+
 	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/criticalstack/e2d/pkg/e2db/key"
 	"github.com/criticalstack/e2d/pkg/e2db/q"
-	"github.com/pkg/errors"
 )
 
 var _ Query = (*Table)(nil)

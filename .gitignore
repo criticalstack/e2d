@@ -7,3 +7,5 @@ dist/
 
 # Go testing fixtures
 testdata
+
+vendor/

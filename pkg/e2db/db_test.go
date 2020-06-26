@@ -1,20 +1,23 @@
-package e2db
+package e2db_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/criticalstack/e2d/pkg/log"
-	"github.com/criticalstack/e2d/pkg/manager"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/criticalstack/e2d/pkg/e2db"
+	"github.com/criticalstack/e2d/pkg/log"
+	"github.com/criticalstack/e2d/pkg/manager"
 )
 
-var db *DB
+var db *e2db.DB
 
 func init() {
 	log.SetLevel(zapcore.DebugLevel)
@@ -42,7 +45,7 @@ func init() {
 			log.Fatal(err)
 		}
 	}()
-	db, err = New(&Config{
+	db, err = e2db.New(context.Background(), &e2db.Config{
 		ClientAddr: ":2479",
 		Namespace:  "criticalstack",
 	})
@@ -70,7 +73,7 @@ var newRoles = []*Role{
 
 func resetTable(t *testing.T) {
 	roles := db.Table(&Role{})
-	if err := roles.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
+	if err := roles.Drop(); err != nil && errors.Cause(err) != e2db.ErrTableNotFound {
 		t.Fatal(err)
 	}
 	for _, r := range newRoles {
@@ -132,7 +135,7 @@ func TestFindManyNoIndex(t *testing.T) {
 	roles := db.Table(&Role{})
 	var r []*Role
 	err := roles.Find("NotIndexed", "value", &r)
-	if errors.Cause(err) != ErrNotIndexed {
+	if errors.Cause(err) != e2db.ErrNotIndexed {
 		t.Fatal("expect 'field is not indexed' error")
 	}
 }
@@ -160,7 +163,7 @@ func TestInsertRequired(t *testing.T) {
 	resetTable(t)
 	roles := db.Table(&Role{})
 	err := roles.Insert(&Role{Name: "invalid"})
-	if errors.Cause(err) != ErrFieldRequired {
+	if errors.Cause(err) != e2db.ErrFieldRequired {
 		t.Fatal("expected ErrFieldRequired")
 	}
 }
@@ -287,13 +290,13 @@ func TestNestedFieldQuery(t *testing.T) {
 			name:  "masked field",
 			field: "Masked",
 			value: "test",
-			err:   ErrNotIndexed,
+			err:   e2db.ErrNotIndexed,
 		},
 		{
 			name:  "masked field real value",
 			field: "Masked",
 			value: "real value",
-			err:   ErrNotIndexed,
+			err:   e2db.ErrNotIndexed,
 		},
 		{
 			name:     "masked index",
@@ -323,7 +326,7 @@ func TestNestedFieldQuery(t *testing.T) {
 }
 
 func TestEncryptedTable(t *testing.T) {
-	db, err := New(&Config{
+	db, err := e2db.New(context.Background(), &e2db.Config{
 		ClientAddr: ":2479",
 		Namespace:  "encrypted",
 	})
@@ -331,8 +334,9 @@ func TestEncryptedTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+
 	roles := db.Table(&Role{})
-	rolesEncrypted := db.Table(&Role{}, WithEncryption([]byte("secret")))
+	rolesEncrypted := db.Table(&Role{}, e2db.WithEncryption([]byte("secret")))
 	if err := rolesEncrypted.Insert(&Role{Name: "user", Description: "user"}); err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +348,7 @@ func TestEncryptedTable(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		t.Fatal(err)
 	}
-	if err := rolesEncrypted.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
+	if err := rolesEncrypted.Drop(); err != nil && errors.Cause(err) != e2db.ErrTableNotFound {
 		t.Fatal(err)
 	}
 	expected := &Role{ID: 1, Name: "user", Description: "user"}
@@ -361,7 +365,7 @@ type Cert struct {
 }
 
 func TestEncryptedField(t *testing.T) {
-	db, err := New(&Config{
+	db, err := e2db.New(context.Background(), &e2db.Config{
 		ClientAddr: ":2479",
 		Namespace:  "criticalstack",
 		SecretKey:  []byte("secret"),
@@ -408,7 +412,7 @@ func TestEncryptedField(t *testing.T) {
 	if diff := cmp.Diff(expected, &c); diff != "" {
 		t.Errorf("e2db: after Update differs: (-want +got)\n%s", diff)
 	}
-	if err := certs.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
+	if err := certs.Drop(); err != nil && errors.Cause(err) != e2db.ErrTableNotFound {
 		t.Fatal(err)
 	}
 }

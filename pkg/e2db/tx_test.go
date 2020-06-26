@@ -1,18 +1,20 @@
-package e2db
+package e2db_test
 
 import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+
+	"github.com/criticalstack/e2d/pkg/e2db"
 )
 
 func TestTxInsert(t *testing.T) {
 	roles := db.Table(&Role{})
-	if err := roles.Drop(); err != nil && errors.Cause(err) != ErrTableNotFound {
+	if err := roles.Drop(); err != nil && errors.Cause(err) != e2db.ErrTableNotFound {
 		t.Fatal(err)
 	}
-	err := roles.Tx(func(tx *Tx) error {
+	err := roles.Tx(func(tx *e2db.Tx) error {
 		for _, r := range newRoles {
 			err := tx.Insert(r)
 			if err != nil {
@@ -78,7 +80,7 @@ func TestTxDelete(t *testing.T) {
 			name:  "delete non-index",
 			field: "NotIndexed",
 			value: "something",
-			err:   ErrNotIndexed,
+			err:   e2db.ErrNotIndexed,
 		},
 		// TODO(ktravis): make field/value a map to test multiple deletions in sequence
 	}

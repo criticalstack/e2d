@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -70,6 +71,8 @@ func ParseAddr(addr string) (*Address, error) {
 }
 
 func FixUnspecifiedHostAddr(addr string) (string, error) {
+	addr = strings.TrimPrefix(addr, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
 	host, port, err := SplitHostPort(addr)
 	if err != nil {
 		return addr, err
