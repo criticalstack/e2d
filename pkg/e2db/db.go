@@ -6,9 +6,10 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3/namespace"
+
+	"github.com/criticalstack/e2d/pkg/client"
 )
 
 type DB struct {
@@ -16,7 +17,7 @@ type DB struct {
 	cfg    *Config
 }
 
-func New(cfg *Config) (*DB, error) {
+func New(ctx context.Context, cfg *Config) (*DB, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -29,7 +30,7 @@ func New(cfg *Config) (*DB, error) {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	if _, err := c.MemberList(ctx); err != nil {
@@ -55,10 +56,6 @@ func (db *DB) Close() {
 
 func (db *DB) Lock(name string, timeout time.Duration) (context.CancelFunc, error) {
 	return db.client.Lock(name, timeout)
-}
-
-type TableOptions struct {
-	Encrypted bool
 }
 
 type TableOption func(*Table)

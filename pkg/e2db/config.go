@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/criticalstack/e2d/pkg/netutil"
-	"github.com/pkg/errors"
 )
 
 type Config struct {

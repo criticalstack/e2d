@@ -5,8 +5,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/criticalstack/e2d/pkg/e2db/key"
 	"github.com/pkg/errors"
+
+	"github.com/criticalstack/e2d/pkg/e2db/key"
 )
 
 var (

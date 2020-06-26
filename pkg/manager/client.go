@@ -4,13 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
+
+	"github.com/criticalstack/e2d/pkg/client"
 )
 
 type Client struct {
 	*client.Client
+
 	cfg *client.Config
 }
 
@@ -25,6 +27,7 @@ func newClient(cfg *client.Config) (*Client, error) {
 func (c *Client) members(ctx context.Context) (map[string]*Member, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
+
 	resp, err := c.MemberList(ctx)
 	if err != nil {
 		return nil, err
@@ -50,6 +53,7 @@ func (c *Client) members(ctx context.Context) (map[string]*Member, error) {
 func (c *Client) addMember(ctx context.Context, peerURL string) (*Member, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
+
 	resp, err := c.MemberAdd(ctx, []string{peerURL})
 	if err != nil {
 		return nil, err
@@ -70,6 +74,7 @@ func (c *Client) addMember(ctx context.Context, peerURL string) (*Member, error)
 func (c *Client) removeMember(ctx context.Context, id uint64) error {
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
+
 	if _, err := c.MemberRemove(ctx, id); err != nil && err != rpctypes.ErrMemberNotFound {
 		return errors.Wrap(err, "RemoveMember")
 	}
@@ -82,7 +87,9 @@ func (c *Client) removeMemberLocked(ctx context.Context, member *Member) error {
 		return err
 	}
 	defer unlock()
+
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
+
 	return c.removeMember(ctx, member.ID)
 }

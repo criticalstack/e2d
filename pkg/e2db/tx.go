@@ -8,14 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/criticalstack/e2d/pkg/client"
-	"github.com/criticalstack/e2d/pkg/e2db/crypto"
-	"github.com/criticalstack/e2d/pkg/e2db/key"
-	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/etcdserver/etcdserverpb"
 	"go.uber.org/zap"
+
+	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/e2db/crypto"
+	"github.com/criticalstack/e2d/pkg/e2db/key"
+	"github.com/criticalstack/e2d/pkg/log"
 )
 
 var (

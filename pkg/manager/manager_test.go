@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/cloudflare/cfssl/csr"
+	"go.uber.org/zap/zapcore"
+
 	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/netutil"
 	"github.com/criticalstack/e2d/pkg/pki"
 	"github.com/criticalstack/e2d/pkg/snapshot"
 	snapshotutil "github.com/criticalstack/e2d/pkg/snapshot/util"
-	"go.uber.org/zap/zapcore"
 )
 
 func writeFile(filename string, data []byte, perm os.FileMode) error {
@@ -65,6 +66,21 @@ func (n *testCluster) start(names ...string) {
 			}
 		}(name)
 	}
+}
+
+func (n *testCluster) restart(names ...string) {
+	var wg sync.WaitGroup
+	for _, name := range names {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+
+			if err := n.lookupNode(name).Restart(); err != nil {
+				n.t.Fatal(err)
+			}
+		}(name)
+	}
+	wg.Wait()
 }
 
 func (n *testCluster) startAll() {
@@ -1262,4 +1278,117 @@ func TestManagerDeleteVolatile(t *testing.T) {
 		t.Fatalf("after snapshot recover, only 1 key/value should remain, received %d", n)
 	}
 	cl.Close()
+}
+
+func TestManagerServerRestartCertRenewal(t *testing.T) {
+	if !*testLong {
+		t.Skip()
+	}
+	if err := os.RemoveAll("testdata"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeTestingCerts(); err != nil {
+		t.Fatal(err)
+	}
+
+	caCertFile := "testdata/ca.crt"
+	caKeyFile := "testdata/ca.key"
+	serverCertFile := "testdata/server.crt"
+	serverKeyFile := "testdata/server.key"
+	peerCertFile := "testdata/peer.crt"
+	peerKeyFile := "testdata/peer.key"
+	clientCertFile := "testdata/client.crt"
+	clientKeyFile := "testdata/client.key"
+
+	c := newTestCluster(t)
+	defer c.cleanup()
+
+	c.addNode("node1", &Config{
+		ClientAddr:          ":2379",
+		PeerAddr:            ":2380",
+		GossipAddr:          ":7980",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.addNode("node2", &Config{
+		ClientAddr:          ":2479",
+		PeerAddr:            ":2480",
+		GossipAddr:          ":7981",
+		BootstrapAddrs:      []string{":7980"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+	c.addNode("node3", &Config{
+		ClientAddr:          ":2579",
+		PeerAddr:            ":2580",
+		GossipAddr:          ":7982",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
+		ClientSecurity: client.SecurityConfig{
+			CertFile:      serverCertFile,
+			KeyFile:       serverKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		PeerSecurity: client.SecurityConfig{
+			CertFile:      peerCertFile,
+			KeyFile:       peerKeyFile,
+			TrustedCAFile: caCertFile,
+		},
+		CACertFile: caCertFile,
+		CAKeyFile:  caKeyFile,
+	})
+
+	c.start("node1", "node2", "node3")
+	c.wait("node1", "node2", "node3")
+	fmt.Println("ready")
+	cl := newSecureTestClient(":2379", caCertFile, clientCertFile, clientKeyFile)
+	testKey1 := "testkey1"
+	testValue1 := "testvalue1"
+	if err := cl.Set(testKey1, testValue1); err != nil {
+		t.Fatal(err)
+	}
+	cl.Close()
+	if err := writeTestingCerts(); err != nil {
+		t.Fatal(err)
+	}
+	c.restart("node1", "node2", "node3")
+	cl = newSecureTestClient(":2479", caCertFile, clientCertFile, clientKeyFile)
+	v, err := cl.Get(testKey1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.Close()
+	if string(v) != testValue1 {
+		t.Fatalf("expected %#v, received %#v", testValue1, string(v))
+	}
 }

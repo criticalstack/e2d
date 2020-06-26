@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package e2dpb;
+
+import "google/protobuf/empty.proto";
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+// Enable custom Marshal method.
+option (gogoproto.marshaler_all) = true;
+// Enable custom Unmarshal method.
+option (gogoproto.unmarshaler_all) = true;
+// Enable custom Size method (Required by Marshal and Unmarshal).
+option (gogoproto.sizer_all) = true;
+
+message HealthResponse {
+    string status = 1;
+}
+
+message RestartResponse {
+    string msg = 1;
+}
+
+service Manager {
+    rpc Health(google.protobuf.Empty) returns (HealthResponse) {}
+    rpc Restart(google.protobuf.Empty) returns (RestartResponse) {}
+}
