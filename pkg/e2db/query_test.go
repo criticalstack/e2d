@@ -1,10 +1,11 @@
-package e2db
+package e2db_test
 
 import (
 	"testing"
 
-	"github.com/criticalstack/e2d/pkg/e2db/q"
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/criticalstack/e2d/pkg/e2db/q"
 )
 
 func TestFindManySort(t *testing.T) {
