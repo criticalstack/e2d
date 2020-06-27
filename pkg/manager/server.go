@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +19,8 @@ import (
 	"go.etcd.io/etcd/clientv3/snapshot"
 	"go.etcd.io/etcd/embed"
 	"go.etcd.io/etcd/etcdserver/api/membership"
+	"go.etcd.io/etcd/lease"
+	"go.etcd.io/etcd/mvcc"
 	"go.etcd.io/etcd/mvcc/backend"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -72,6 +76,9 @@ type server struct {
 	started uint64
 	// set when server is being restarted
 	restarting uint64
+
+	// mu is used to coordinate potentially unsafe access to etcd
+	mu sync.Mutex
 }
 
 func newServer(cfg *serverConfig) *server {
@@ -93,15 +100,18 @@ func (s *server) isLeader() bool {
 	return s.Etcd.Server.Leader() == s.Etcd.Server.ID()
 }
 
-func (s *server) restart(peers []*Peer) error {
+func (s *server) restart(ctx context.Context, peers []*Peer) error {
 	atomic.StoreUint64(&s.restarting, 1)
 	defer atomic.StoreUint64(&s.restarting, 0)
 
 	s.hardStop()
-	return s.startEtcd(embed.ClusterStateFlagNew, peers)
+	return s.startEtcd(ctx, embed.ClusterStateFlagNew, peers)
 }
 
 func (s *server) hardStop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.Etcd != nil {
 		// This shuts down the etcdserver.Server instance without coordination
 		// with other members of the cluster. This ensures that a transfer of
@@ -118,6 +128,9 @@ func (s *server) hardStop() {
 }
 
 func (s *server) gracefulStop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.Etcd != nil {
 		// There is no need to call Stop on the underlying etcdserver.Server
 		// since it is called in Close.
@@ -174,7 +187,7 @@ func validatePeers(peers []*Peer, requiredClusterSize int) error {
 	return nil
 }
 
-func (s *server) startEtcd(state string, peers []*Peer) error {
+func (s *server) startEtcd(ctx context.Context, state string, peers []*Peer) error {
 	if err := validatePeers(peers, s.cfg.RequiredClusterSize); err != nil {
 		return err
 	}
@@ -242,6 +255,10 @@ func (s *server) startEtcd(state string, peers []*Peer) error {
 	}
 	select {
 	case <-s.Server.ReadyNotify():
+		if err := s.writeClusterInfo(ctx); err != nil {
+			return errors.Wrap(err, "cannot write cluster-info")
+		}
+		log.Debug("write cluster-info successful!")
 		log.Info("Server is ready!")
 		atomic.StoreUint64(&s.started, 1)
 
@@ -249,29 +266,22 @@ func (s *server) startEtcd(state string, peers []*Peer) error {
 			<-s.Server.StopNotify()
 			atomic.StoreUint64(&s.started, 0)
 		}()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-
-		if err := s.writeClusterInfo(ctx); err != nil {
-			return err
-		}
-		log.Debug("write cluster-info successful!")
-	case <-time.After(300 * time.Second):
-		s.Server.Stop()
-		log.Info("Server took too long to start!")
+		return nil
 	case err := <-s.Err():
 		return errors.Wrap(err, "etcd.Server.Start")
+	case <-ctx.Done():
+		s.Server.Stop()
+		log.Info("Server was unable to start")
+		return ctx.Err()
 	}
-	return nil
 }
 
-func (s *server) startNew(peers []*Peer) error {
-	return s.startEtcd(embed.ClusterStateFlagNew, peers)
+func (s *server) startNew(ctx context.Context, peers []*Peer) error {
+	return s.startEtcd(ctx, embed.ClusterStateFlagNew, peers)
 }
 
-func (s *server) joinExisting(peers []*Peer) error {
-	return s.startEtcd(embed.ClusterStateFlagExisting, peers)
+func (s *server) joinExisting(ctx context.Context, peers []*Peer) error {
+	return s.startEtcd(ctx, embed.ClusterStateFlagExisting, peers)
 }
 
 func newSnapshotReadCloser(snapshot backend.Snapshot) io.ReadCloser {
@@ -416,4 +426,47 @@ func (s *server) writeClusterInfo(ctx context.Context) error {
 			RequiredClusterSize: s.cfg.RequiredClusterSize,
 		})
 	})
+}
+
+var (
+	// volatilePrefix is the key prefix used for keys that will NOT be
+	// preserved after a cluster is recovered from snapshot
+	volatilePrefix = []byte("/_e2d")
+
+	// snapshotMarkerKey is the key used to indicate when a cluster recovered
+	// from snapshot
+	snapshotMarkerKey = []byte("/_e2d/snapshot")
+)
+
+var errServerStopped = errors.New("server stopped")
+
+func (s *server) clearVolatilePrefix() (rev, deleted int64, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isRunning() {
+		return 0, 0, errServerStopped
+	}
+	res, err := s.Server.KV().Range(volatilePrefix, []byte{}, mvcc.RangeOptions{})
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, kv := range res.KVs {
+		if bytes.HasPrefix(kv.Key, volatilePrefix) {
+			n, _ := s.Server.KV().DeleteRange(kv.Key, nil)
+			deleted += n
+		}
+	}
+	return res.Rev, deleted, nil
+}
+
+func (s *server) placeSnapshotMarker(v []byte) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isRunning() {
+		return 0, errServerStopped
+	}
+	rev := s.Server.KV().Put(snapshotMarkerKey, v, lease.NoLease)
+	return rev, nil
 }

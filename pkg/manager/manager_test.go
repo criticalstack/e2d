@@ -303,7 +303,7 @@ func TestManagerSingleFaultRecovery(t *testing.T) {
 	}
 }
 
-func TestManagerRestoreClusterFromSnapshot(t *testing.T) {
+func TestManagerRestoreClusterFromSnapshotNoCompression(t *testing.T) {
 	if !*testLong {
 		t.Skip()
 	}
@@ -422,6 +422,7 @@ func TestManagerRestoreClusterFromSnapshotCompression(t *testing.T) {
 	if !*testLong {
 		t.Skip()
 	}
+
 	if err := os.RemoveAll("testdata"); err != nil {
 		t.Fatal(err)
 	}
@@ -1231,7 +1232,8 @@ func TestManagerDeleteVolatile(t *testing.T) {
 	fmt.Println("ready")
 	cl := newTestClient(":2379")
 	volatilePrefix := "/_e2d"
-	for i := 0; i < 10; i++ {
+	nkeys := 10
+	for i := 0; i < nkeys; i++ {
 		if err := cl.Set(fmt.Sprintf("%s/%d", volatilePrefix, i), "testvalue1"); err != nil {
 			t.Fatal(err)
 		}
@@ -1241,8 +1243,11 @@ func TestManagerDeleteVolatile(t *testing.T) {
 		t.Fatal(err)
 	}
 	cl.Close()
-	if n != 10 {
-		t.Fatalf("expected 10 keys, received %d", n)
+
+	// cluster-info is added by e2db which contains a key with the cluster-info
+	// itself, and another key for the e2db table schema
+	if n != int64(nkeys+2) {
+		t.Fatalf("expected %d keys, received %d", nkeys+2, n)
 	}
 	c.saveSnapshot("node1")
 	c.stop("node1")
