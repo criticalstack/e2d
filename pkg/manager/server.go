@@ -227,18 +227,11 @@ func (s *server) startEtcd(ctx context.Context, state string, peers []*Peer) err
 	cfg.EnableV2 = false
 	cfg.ClusterState = state
 	cfg.InitialCluster = initialClusterStringFromPeers(peers)
+	cfg.StrictReconfigCheck = true
+	cfg.ServiceRegister = s.cfg.ServiceRegister
 
 	// XXX(chris): not sure about this
 	clientv3.SetLogger(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
-
-	// TODO(chris): Etcd requires quorum when this in enabled, meaning that two
-	// nodes only could not be reconfigured since they will never be greater
-	// than N+1, so we disable this. It is possible that this can be enabled,
-	// however, we have to ensure that etcd can lose one member of a 3 node
-	// cluster and still be able to recover specifically by removing the
-	// previous member and adding a new one.
-	cfg.StrictReconfigCheck = false
-	cfg.ServiceRegister = s.cfg.ServiceRegister
 
 	log.Info("starting etcd",
 		zap.String("name", cfg.Name),
@@ -259,8 +252,8 @@ func (s *server) startEtcd(ctx context.Context, state string, peers []*Peer) err
 			return errors.Wrap(err, "cannot write cluster-info")
 		}
 		log.Debug("write cluster-info successful!")
-		log.Info("Server is ready!")
 		atomic.StoreUint64(&s.started, 1)
+		log.Info("Server is ready!")
 
 		go func() {
 			<-s.Server.StopNotify()
