@@ -1397,3 +1397,86 @@ func TestManagerServerRestartCertRenewal(t *testing.T) {
 		t.Fatalf("expected %#v, received %#v", testValue1, string(v))
 	}
 }
+
+func TestManagerRollingUpdate(t *testing.T) {
+	if !*testLong {
+		t.Skip()
+	}
+
+	if err := os.RemoveAll("testdata"); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestCluster(t)
+	defer c.cleanup()
+
+	c.addNode("node1", &Config{
+		ClientAddr:          ":2379",
+		PeerAddr:            ":2380",
+		GossipAddr:          ":7980",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
+	})
+	c.addNode("node2", &Config{
+		ClientAddr:          ":2479",
+		PeerAddr:            ":2480",
+		GossipAddr:          ":7981",
+		BootstrapAddrs:      []string{":7980"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
+	})
+	c.addNode("node3", &Config{
+		ClientAddr:          ":2579",
+		PeerAddr:            ":2580",
+		GossipAddr:          ":7982",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  5 * time.Second,
+	})
+
+	c.startAll()
+	c.wait("node1", "node2", "node3")
+	fmt.Println("ready")
+	cl := newTestClient(":2379")
+	testKey1 := "testkey1"
+	testValue1 := "testvalue1"
+	if err := cl.Set(testKey1, testValue1); err != nil {
+		t.Fatal(err)
+	}
+	v, err := cl.Get(testKey1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.Close()
+	if string(v) != testValue1 {
+		t.Fatalf("expected %#v, received %#v", testValue1, string(v))
+	}
+
+	c.addNode("node4", &Config{
+		ClientAddr:          ":2679",
+		PeerAddr:            ":2680",
+		GossipAddr:          ":7983",
+		BootstrapAddrs:      []string{":7981"},
+		RequiredClusterSize: 3,
+		HealthCheckInterval: 1 * time.Second,
+		HealthCheckTimeout:  10 * time.Second,
+	})
+	c.start("node4")
+	c.wait("node2", "node3", "node4")
+	fmt.Println("healthy!")
+	c.stop("node1")
+	c.waitRemoved("node1", "node2", "node3", "node4")
+	cl = newTestClient(":2679")
+	v, err = cl.Get(testKey1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.Close()
+	if string(v) != testValue1 {
+		t.Fatalf("expected %#v, received %#v", testValue1, string(v))
+	}
+}
