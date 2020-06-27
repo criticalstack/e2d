@@ -8,7 +8,7 @@ steps:
   commands:
   - git fetch --tags
 
-- name: testing
+- name: test
   image: golang:1.13
   commands:
   - make test
@@ -17,6 +17,16 @@ steps:
   image: golang:1.13
   commands:
   - make lint
+
+- name: manager-testing
+  image: golang:1.13
+  commands:
+  - go test -v ./pkg/manager -test.long
+  when:
+    branch:
+      - master
+    event:
+      - pull_request
 
 - name: release
   image: golang:1.13
