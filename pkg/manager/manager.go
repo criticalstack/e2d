@@ -1,7 +1,6 @@
 package manager
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"io/ioutil"
@@ -10,8 +9,6 @@ import (
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
-	"go.etcd.io/etcd/lease"
-	"go.etcd.io/etcd/mvcc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
@@ -105,7 +102,10 @@ func (m *Manager) HardStop() {
 	}
 	m.cancel()
 	m.ctx, m.cancel = context.WithCancel(context.Background())
+	log.Debug("attempting hard stop of etcd server ...")
 	m.etcd.hardStop()
+	<-m.etcd.Server.StopNotify()
+	log.Debug("etcd server stopped")
 	if err := m.gossip.Shutdown(); err != nil {
 		log.Debug("gossip shutdown failed", zap.Error(err))
 	}
@@ -120,7 +120,10 @@ func (m *Manager) GracefulStop() {
 	}
 	m.cancel()
 	m.ctx, m.cancel = context.WithCancel(context.Background())
+	log.Debug("attempting graceful stop of etcd server ...")
 	m.etcd.gracefulStop()
+	<-m.etcd.Server.StopNotify()
+	log.Debug("etcd server stopped")
 	if err := m.gossip.Shutdown(); err != nil {
 		log.Debug("gossip shutdown failed", zap.Error(err))
 	}
@@ -134,7 +137,10 @@ func (m *Manager) Restart() error {
 		}
 		peers = append(peers, &Peer{member.Name, member.PeerURLs[0]})
 	}
-	return m.etcd.restart(peers)
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+
+	return m.etcd.restart(ctx, peers)
 }
 
 func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
@@ -174,16 +180,6 @@ func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
 	return true, nil
 }
 
-var (
-	// volatilePrefix is the key prefix used for keys that will NOT be
-	// preserved after a cluster is recovered from snapshot
-	volatilePrefix = []byte("/_e2d")
-
-	// snapshotMarkerKey is the key used to indicate when a cluster recovered
-	// from snapshot
-	snapshotMarkerKey = []byte("/_e2d/snapshot")
-)
-
 // startEtcdCluster starts a new etcd cluster with the provided peers. The list
 // of peers provided must be inclusive of this prospective instance. An attempt
 // is made to restore from a previous snapshot when one is available.
@@ -197,7 +193,10 @@ func (m *Manager) startEtcdCluster(peers []*Peer) error {
 	if err != nil {
 		log.Error("cannot restore snapshot", zap.Error(err))
 	}
-	if err := m.etcd.startNew(peers); err != nil {
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
+	defer cancel()
+
+	if err := m.etcd.startNew(ctx, peers); err != nil {
 		return err
 	}
 	if !snapshot {
@@ -208,23 +207,27 @@ func (m *Manager) startEtcdCluster(peers []*Peer) error {
 	// therefore do NOT get committed through the raft log. This is OK
 	// since all servers that recover from a snapshot will perform the same
 	// operations and the outcome is deterministic.
-	res, err := m.etcd.Server.KV().Range(volatilePrefix, []byte{}, mvcc.RangeOptions{})
+	rev, deleted, err := m.etcd.clearVolatilePrefix()
 	if err != nil {
-		return err
-	}
-	var deleted int64
-	for _, kv := range res.KVs {
-		if bytes.HasPrefix(kv.Key, volatilePrefix) {
-			n, _ := m.etcd.Server.KV().DeleteRange(kv.Key, nil)
-			deleted += n
+		if errors.Cause(err) != errServerStopped {
+			return err
 		}
+		log.Debug("cannot clear volatile prefix", zap.Error(err))
+		return nil
 	}
 	log.Debug("deleted volatile keys",
 		zap.Int64("deleted-keys", deleted),
-		zap.Int64("revision", res.Rev),
+		zap.Int64("revision", rev),
 	)
 	v := []byte(time.Now().Format(time.RFC3339))
-	rev := m.etcd.Server.KV().Put(snapshotMarkerKey, v, lease.NoLease)
+	rev, err = m.etcd.placeSnapshotMarker(v)
+	if err != nil {
+		if errors.Cause(err) != errServerStopped {
+			return err
+		}
+		log.Debug("cannot place snapshot marker", zap.Error(err))
+		return nil
+	}
 	log.Debug("placed snapshot marker",
 		zap.String("key", string(snapshotMarkerKey)),
 		zap.String("value", string(v)),
@@ -236,7 +239,7 @@ func (m *Manager) startEtcdCluster(peers []*Peer) error {
 // joinEtcdCluster attempts to join an etcd cluster by establishing a client
 // connection with the provided peer URL.
 func (m *Manager) joinEtcdCluster(peerURL string) error {
-	ctx, cancel := context.WithCancel(m.ctx)
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
 	defer cancel()
 
 	c, err := newClient(&client.Config{
@@ -265,7 +268,7 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 			peers = append(peers, &Peer{m.Name, m.PeerURL})
 		}
 		log.Infof("%s is already considered a member, attempting to start ...", m.cfg.Name)
-		if err := m.etcd.joinExisting(peers); err == nil {
+		if err := m.etcd.joinExisting(ctx, peers); err == nil {
 			return nil
 		}
 		log.Infof("%s is already considered a member, but failed to start, attempting to remove ...", m.cfg.Name)
@@ -296,7 +299,7 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 	for _, m := range members {
 		peers = append(peers, &Peer{m.Name, m.PeerURL})
 	}
-	if err := m.etcd.joinExisting(peers); err != nil {
+	if err := m.etcd.joinExisting(ctx, peers); err != nil {
 		if err := c.removeMember(m.ctx, member.ID); err != nil {
 			log.Debug("unable to remove member", zap.Error(err))
 		}
@@ -366,6 +369,13 @@ func (m *Manager) runMembershipCleanup() {
 		select {
 		case ev := <-m.gossip.Events():
 			log.Debugf("[%v]: received membership event: %v", shortName(m.cfg.Name), ev)
+
+			// It is possible to receive an event from memberlist where the
+			// Node is nil. This most likely happens when starting and stopping
+			// the server quickly, so is mostly observed during testing.
+			if ev.Node == nil {
+				continue
+			}
 
 			// When this member's gossip network does not have enough members
 			// to be considered a majority, it is no longer eligible to affect
