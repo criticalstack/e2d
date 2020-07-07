@@ -16,6 +16,10 @@ builds:
   - GOPROXY=direct
   - GOSUMDB=off
   main: ./cmd/e2d
+  goarch:
+  - "386"
+  - amd64
+  - arm64
   gcflags:
     - all=-trimpath={{.Env.GOPATH}}
   asmflags:
