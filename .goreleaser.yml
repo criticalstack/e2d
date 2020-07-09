@@ -37,7 +37,7 @@ archives:
     386: i386
     amd64: x86_64
 nfpms:
-- name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+- file_name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
   homepage:  https://github.com/criticalstack/e2d
   description: Cloud-native etcd management
   maintainer: criticalstack <dev@criticalstack.com>
