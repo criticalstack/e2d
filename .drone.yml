@@ -3,23 +3,28 @@ type: docker
 name: default
 
 steps:
-- name: fetch
-  image: alpine/git
-  commands:
-  - git fetch --tags
-
 - name: test
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - make test
+  depends_on:
+    - clone
+  when:
+    event:
+      - push
 
 - name: lint
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - make lint
+  depends_on:
+    - clone
+  when:
+    event:
+      - push
 
 - name: manager-testing
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - go test -v ./pkg/manager -test.long
   when:
@@ -29,7 +34,7 @@ steps:
       - pull_request
 
 - name: release
-  image: golang:1.13
+  image: golang:1.14
   when:
     branch:
     - master
@@ -44,3 +49,7 @@ steps:
   - curl -sL https://git.io/goreleaser | bash
   - curl -F "package[distro_version_id]=190" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.deb)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
   - curl -F "package[distro_version_id]=204" -F "package[package_file]=@$(ls dist/e2d_*_x86_64.rpm)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/criticalstack/public/packages.json
+
+volumes:
+- name: gocache
+  temp: {}
