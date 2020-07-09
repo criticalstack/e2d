@@ -198,7 +198,7 @@ func (s *server) startEtcd(ctx context.Context, state string, peers []*Peer) err
 	if s.cfg.Dir != "" {
 		cfg.Dir = s.cfg.Dir
 	}
-	if err := os.MkdirAll(cfg.Dir, 0755); err != nil && !os.IsExist(err) {
+	if err := os.MkdirAll(cfg.Dir, 0700); err != nil && !os.IsExist(err) {
 		return errors.Wrapf(err, "cannot create etcd data dir: %#v", cfg.Dir)
 	}
 	cfg.Logger = "zap"
