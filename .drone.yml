@@ -5,26 +5,28 @@ name: default
 steps:
 - name: test
   image: golang:1.14
+  volumes:
+  - name: gocache
+    path: /go
   commands:
   - make test
-  depends_on:
-    - clone
   when:
     event:
       - push
 
 - name: lint
-  image: golang:1.14
+  image: golang:1.13
   commands:
   - make lint
-  depends_on:
-    - clone
   when:
     event:
       - push
 
 - name: manager-testing
   image: golang:1.14
+  volumes:
+  - name: gocache
+    path: /go
   commands:
   - go test -v ./pkg/manager -test.long
   when:
@@ -33,8 +35,21 @@ steps:
     event:
       - pull_request
 
+- name: fetch
+  image: alpine/git
+  commands:
+  - git fetch --tags
+  when:
+    branch:
+    - master
+    event:
+    - tag
+
 - name: release
   image: golang:1.14
+  volumes:
+  - name: gocache
+    path: /go
   when:
     branch:
     - master
