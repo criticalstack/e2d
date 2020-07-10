@@ -13,7 +13,7 @@ type FileSnapshotter struct {
 }
 
 func NewFileSnapshotter(path string) (*FileSnapshotter, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil && !os.IsExist(err) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil && !os.IsExist(err) {
 		return nil, errors.Wrapf(err, "cannot create snapshot directory: %#v", filepath.Dir(path))
 	}
 	return &FileSnapshotter{file: path}, nil

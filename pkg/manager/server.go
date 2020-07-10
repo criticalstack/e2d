@@ -201,6 +201,14 @@ func (s *server) startEtcd(ctx context.Context, state string, peers []*Peer) err
 	if err := os.MkdirAll(cfg.Dir, 0700); err != nil && !os.IsExist(err) {
 		return errors.Wrapf(err, "cannot create etcd data dir: %#v", cfg.Dir)
 	}
+
+	// NOTE(chrism): etcd 3.4.9 introduced a check on the data directory
+	// permissions that require 0700. Since this causes the server to not come
+	// up we will attempt to change the perms.
+	log.Info("chmod data dir", zap.String("dir", s.cfg.Dir))
+	if err := os.Chmod(cfg.Dir, 0700); err != nil {
+		log.Error("chmod failed", zap.String("dir", s.cfg.Dir), zap.Error(err))
+	}
 	cfg.Logger = "zap"
 	cfg.Debug = s.cfg.Debug
 	cfg.ZapLoggerBuilder = func(c *embed.Config) error {
