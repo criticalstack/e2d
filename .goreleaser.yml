@@ -26,9 +26,9 @@ builds:
     - all=-trimpath={{.Env.GOPATH}}
   ldflags:
      - -s -w
-     - -X "github.com/criticalstack/e2d/pkg/buildinfo.Date={{.Date}}"
-     - -X "github.com/criticalstack/e2d/pkg/buildinfo.GitSHA={{.ShortCommit}}"
-     - -X "github.com/criticalstack/e2d/pkg/buildinfo.Version={{.Tag}}"
+     - -X "github.com/criticalstack/e2d/internal/buildinfo.Date={{.Date}}"
+     - -X "github.com/criticalstack/e2d/internal/buildinfo.GitSHA={{.ShortCommit}}"
+     - -X "github.com/criticalstack/e2d/internal/buildinfo.Version={{.Tag}}"
 archives:
 - replacements:
     darwin: Darwin
@@ -55,7 +55,7 @@ nfpms:
   - /etc/systemd/system/e2d.service.d
   - /var/lib/etcd
   files: 
-    deploy/e2d.service: /etc/systemd/system/e2d.service
+    build/e2d.service: /etc/systemd/system/e2d.service
 checksum:
   name_template: 'checksums.txt'
 snapshot:

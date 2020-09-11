@@ -12,8 +12,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	e2daws "github.com/criticalstack/e2d/pkg/provider/aws"
 	"github.com/pkg/errors"
+
+	e2daws "github.com/criticalstack/e2d/internal/provider/aws"
 )
 
 func newAWSConfig(name string) (*aws.Config, error) {
