@@ -2,17 +2,25 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
+	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 
 	"github.com/criticalstack/e2d/pkg/client"
+	configv1alpha1 "github.com/criticalstack/e2d/pkg/config/v1alpha1"
+	"github.com/criticalstack/e2d/pkg/discovery"
+	"github.com/criticalstack/e2d/pkg/etcdserver"
+	"github.com/criticalstack/e2d/pkg/gossip"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/manager/e2dpb"
 	"github.com/criticalstack/e2d/pkg/snapshot"
@@ -24,73 +32,178 @@ type Manager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	cfg         *Config
-	gossip      *gossip
-	etcd        *server
-	cluster     *clusterMembership
-	snapshotter snapshot.Snapshotter
+	cfg    *configv1alpha1.Configuration
+	etcd   *etcdserver.Server
+	gossip *gossip.Gossip
+
+	peerGetter            discovery.PeerGetter
+	snapshotter           snapshot.Snapshotter
+	snapshotEncryptionKey *[32]byte
 
 	removeCh chan string
 }
 
 // New creates a new instance of Manager.
-func New(cfg *Config) (*Manager, error) {
-	if err := cfg.validate(); err != nil {
+func New(cfg *configv1alpha1.Configuration) (*Manager, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, errors.Wrap(err, "e2d config is invalid")
+	}
+
+	var clientSecurity, peerSecurity client.SecurityConfig
+	if cfg.CACert != "" && cfg.CAKey != "" {
+		ca, err := LoadCertificateAuthority(cfg.CACert, cfg.CAKey)
+		if err != nil {
+			return nil, err
+		}
+		if err := ca.WriteAll(); err != nil {
+			return nil, err
+		}
+		dir := filepath.Dir(cfg.CACert)
+		clientSecurity = client.SecurityConfig{
+			CertFile:      filepath.Join(dir, "server.crt"),
+			KeyFile:       filepath.Join(dir, "server.key"),
+			TrustedCAFile: cfg.CACert,
+		}
+		peerSecurity = client.SecurityConfig{
+			CertFile:      filepath.Join(dir, "peer.crt"),
+			KeyFile:       filepath.Join(dir, "peer.key"),
+			TrustedCAFile: cfg.CACert,
+		}
+	}
+	clientURL := url.URL{Scheme: clientSecurity.Scheme(), Host: cfg.ClientAddr.String()}
+	peerURL := url.URL{Scheme: peerSecurity.Scheme(), Host: cfg.PeerAddr.String()}
+
+	name, err := getExistingNameFromDataDir(filepath.Join(cfg.DataDir, "member/snap/db"), peerURL)
+	if err != nil {
+		log.Debug("cannot read existing data-dir", zap.Error(err))
+		name = fmt.Sprintf("%X", rand.Uint64())
+	}
+	if cfg.OverrideName != "" {
+		name = cfg.OverrideName
+	}
+
+	peerGetter, err := cfg.DiscoveryConfiguration.Setup()
+	if err != nil {
+		return nil, err
+	}
+
+	// the initial peers will only be seeded when the user does not provide any
+	// initial peers
+	if cfg.RequiredClusterSize > 1 && len(cfg.DiscoveryConfiguration.InitialPeers) == 0 {
+		addrs, err := peerGetter.GetAddrs(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		log.Debugf("cloud provided addresses: %v", addrs)
+		for _, addr := range addrs {
+			cfg.DiscoveryConfiguration.InitialPeers = append(cfg.DiscoveryConfiguration.InitialPeers, fmt.Sprintf("%s:%d", addr, configv1alpha1.DefaultGossipPort))
+		}
+		log.Debugf("bootstrap addrs: %v", cfg.DiscoveryConfiguration.InitialPeers)
+		if len(cfg.DiscoveryConfiguration.InitialPeers) == 0 {
+			return nil, errors.Errorf("bootstrap addresses must be provided")
+		}
+	}
+
+	snapshotter, err := getSnapshotProvider(cfg.SnapshotConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	// both memberlist security and snapshot encryption are implicitly based
+	// upon the CA key
+	var key [32]byte
+	if cfg.CAKey != "" {
+		key, err = ReadEncryptionKey(cfg.CAKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var etcdLogLevel, memberlistLogLevel zapcore.Level
+	if err := etcdLogLevel.Set(cfg.EtcdLogLevel); err != nil {
+		return nil, err
+	}
+	if err := memberlistLogLevel.Set(cfg.MemberlistLogLevel); err != nil {
 		return nil, err
 	}
 
 	m := &Manager{
 		cfg: cfg,
-		etcd: newServer(&serverConfig{
-			Name:                cfg.Name,
-			Dir:                 cfg.Dir,
-			ClientURL:           cfg.ClientURL,
-			PeerURL:             cfg.PeerURL,
+		etcd: &etcdserver.Server{
+			Name:                name,
+			DataDir:             cfg.DataDir,
+			ClientURL:           clientURL,
+			PeerURL:             peerURL,
 			RequiredClusterSize: cfg.RequiredClusterSize,
-			ClientSecurity:      cfg.ClientSecurity,
-			PeerSecurity:        cfg.PeerSecurity,
-			EtcdLogLevel:        cfg.EtcdLogLevel,
-			Debug:               cfg.Debug,
+			ClientSecurity:      clientSecurity,
+			PeerSecurity:        peerSecurity,
+			LogLevel:            etcdLogLevel,
 			EnableLocalListener: true,
+			PreVote:             !cfg.DisablePreVote,
+			UnsafeNoFsync:       cfg.UnsafeNoFsync,
+		},
+		gossip: gossip.New(&gossip.Config{
+			Name:       name,
+			ClientURL:  clientURL.String(),
+			PeerURL:    peerURL.String(),
+			GossipHost: cfg.GossipAddr.Host,
+			GossipPort: int(cfg.GossipAddr.Port),
+			SecretKey:  key[:],
+			LogLevel:   memberlistLogLevel,
 		}),
-		gossip: newGossip(&gossipConfig{
-			Name:       cfg.Name,
-			ClientURL:  cfg.ClientURL.String(),
-			PeerURL:    cfg.PeerURL.String(),
-			GossipHost: cfg.GossipHost,
-			GossipPort: cfg.GossipPort,
-			SecretKey:  cfg.gossipSecretKey,
-		}),
-		removeCh:    make(chan string, 10),
-		snapshotter: cfg.Snapshotter,
+		snapshotEncryptionKey: &key,
+		removeCh:              make(chan string, 10),
+		peerGetter:            peerGetter,
+		snapshotter:           snapshotter,
+	}
+	if cfg.CompactionInterval.Duration != 0 {
+		m.etcd.CompactionInterval = cfg.CompactionInterval.Duration
+	}
+	if !cfg.MetricsConfiguration.Addr.IsZero() {
+		metricsURL := &url.URL{Scheme: clientSecurity.Scheme(), Host: cfg.MetricsConfiguration.Addr.String()}
+		if cfg.MetricsConfiguration.DisableAuth {
+			metricsURL.Scheme = "http"
+		}
+		m.etcd.MetricsURL = metricsURL
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
-	m.cluster = newClusterMembership(m.ctx, m.cfg.HealthCheckTimeout, func(name string) error {
-		log.Debug("removing member ...",
-			zap.String("name", shortName(m.cfg.Name)),
-			zap.String("removed", shortName(name)),
-		)
-		if err := m.etcd.removeMember(m.ctx, name); err != nil && errors.Cause(err) != errCannotFindMember {
-			return err
-		}
-		log.Debug("member removed",
-			zap.String("name", shortName(m.cfg.Name)),
-			zap.String("removed", shortName(name)),
-		)
-
-		// TODO(chris): this is mostly used for testing atm and
-		// should evolve in the future to be part of a more
-		// complete event broadcast system
-		select {
-		case m.removeCh <- name:
-		default:
-		}
-		return nil
-	})
-	m.etcd.cfg.ServiceRegister = func(s *grpc.Server) {
+	m.etcd.ServiceRegister = func(s *grpc.Server) {
 		e2dpb.RegisterManagerServer(s, &ManagerService{m})
 	}
 	return m, nil
+}
+
+func (m *Manager) Name() string {
+	if m.etcd == nil {
+		return ""
+	}
+	return m.etcd.Name
+}
+
+func (m *Manager) Etcd() *etcdserver.Server {
+	if m.etcd == nil {
+		return nil
+	}
+	return m.etcd
+}
+
+func (m *Manager) Gossip() *gossip.Gossip {
+	if m.gossip == nil {
+		return nil
+	}
+	return m.gossip
+}
+
+func (m *Manager) Config() *configv1alpha1.Configuration {
+	return m.cfg
+}
+
+func (m *Manager) RemoveCh() <-chan string {
+	return m.removeCh
+}
+
+func (m *Manager) Snapshotter() snapshot.Snapshotter {
+	return m.snapshotter
 }
 
 // HardStop stops all services and cleans up the Manager state. Unlike
@@ -102,10 +215,12 @@ func (m *Manager) HardStop() {
 	}
 	m.cancel()
 	m.ctx, m.cancel = context.WithCancel(context.Background())
-	log.Debug("attempting hard stop of etcd server ...")
-	m.etcd.hardStop()
-	<-m.etcd.Server.StopNotify()
-	log.Debug("etcd server stopped")
+	if m.etcd != nil {
+		log.Debug("attempting hard stop of etcd server ...")
+		m.etcd.HardStop()
+		<-m.etcd.Server.StopNotify()
+		log.Debug("etcd server stopped")
+	}
 	if err := m.gossip.Shutdown(); err != nil {
 		log.Debug("gossip shutdown failed", zap.Error(err))
 	}
@@ -121,7 +236,7 @@ func (m *Manager) GracefulStop() {
 	m.cancel()
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	log.Debug("attempting graceful stop of etcd server ...")
-	m.etcd.gracefulStop()
+	m.etcd.GracefulStop()
 	<-m.etcd.Server.StopNotify()
 	log.Debug("etcd server stopped")
 	if err := m.gossip.Shutdown(); err != nil {
@@ -130,54 +245,132 @@ func (m *Manager) GracefulStop() {
 }
 
 func (m *Manager) Restart() error {
-	peers := make([]*Peer, 0)
+	peers := make([]*etcdserver.Peer, 0)
 	for _, member := range m.etcd.Etcd.Server.Cluster().Members() {
 		if len(member.PeerURLs) == 0 {
 			continue
 		}
-		peers = append(peers, &Peer{member.Name, member.PeerURLs[0]})
+		peers = append(peers, &etcdserver.Peer{Name: member.Name, URL: member.PeerURLs[0]})
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 	defer cancel()
 
-	return m.etcd.restart(ctx, peers)
+	return m.etcd.Restart(ctx, peers)
 }
 
-func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
-	if m.snapshotter == nil {
-		return false, nil
+// Run starts and manages an etcd node based upon the provided configuration.
+// In the case of a fault, or if the manager is otherwise stopped, this method
+// exits.
+func (m *Manager) Run() error {
+	if m.etcd.IsRunning() {
+		return errors.New("etcd is already running")
 	}
 
-	r, err := m.snapshotter.Load()
-	if err != nil {
-		return false, err
-	}
-	defer r.Close()
+	switch m.cfg.RequiredClusterSize {
+	case 1:
+		// a single-node etcd cluster does not require gossip or need to wait for
+		// other members and therefore can start immediately
+		if err := m.startEtcdCluster([]*etcdserver.Peer{{Name: m.etcd.Name, URL: m.etcd.PeerURL.String()}}); err != nil {
+			return err
+		}
+	case 3, 5:
+		// all multi-node clusters require the gossip network to be started
+		if err := m.gossip.Start(m.ctx, m.cfg.DiscoveryConfiguration.InitialPeers); err != nil {
+			return err
+		}
 
-	log.Debugf("[%v]: attempting snapshot restore with members: %s", shortName(m.cfg.Name), peers)
-	tmpFile, err := ioutil.TempFile("", "snapshot.load")
-	if err != nil {
-		return false, err
-	}
-	defer tmpFile.Close()
+		// a multi-node etcd cluster will either be created or an existing one will
+		// be joined
+		if err := m.startOrJoinEtcdCluster(); err != nil {
+			return err
+		}
 
-	r = snapshotutil.NewGunzipReadCloser(r)
-	r = snapshotutil.NewDecrypterReadCloser(r, m.cfg.snapshotEncryptionKey)
-	if _, err := io.Copy(tmpFile, r); err != nil {
-		return false, err
+		if err := m.gossip.Update(gossip.Running); err != nil {
+			log.Debugf("[%v]: cannot update member metadata: %v", m.etcd.Name, err)
+		}
 	}
 
-	// if the process is restarted, this will fail if the data-dir already
-	// exists, so it must be deleted here
-	if err := os.RemoveAll(m.cfg.Dir); err != nil {
-		log.Errorf("cannot remove data-dir: %v", err)
+	// cluster is ready so start maintenance loops
+	go m.runMembershipCleanup()
+	go m.runSnapshotter()
+
+	for {
+		select {
+		case <-m.etcd.Server.StopNotify():
+			log.Info("etcd server stopping ...",
+				zap.Stringer("id", m.etcd.Server.ID()),
+				zap.String("name", m.etcd.Name),
+			)
+			if m.etcd.IsRestarting() {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			if m.cfg.RequiredClusterSize == 1 {
+				return nil
+			}
+			if err := m.gossip.Update(gossip.Unknown); err != nil {
+				log.Debugf("[%v]: cannot update member metadata: %v", m.etcd.Name, err)
+			}
+			return nil
+		case err := <-m.etcd.Err():
+			return err
+		case <-m.ctx.Done():
+			return nil
+		}
 	}
-	log.Infof("loading snapshot from: %#v", tmpFile.Name())
-	if err := m.etcd.restoreSnapshot(tmpFile.Name(), peers); err != nil {
-		return false, err
+}
+
+func (m *Manager) startOrJoinEtcdCluster() error {
+	ctx, cancel := context.WithTimeout(m.ctx, m.cfg.DiscoveryConfiguration.BootstrapTimeout.Duration)
+	defer cancel()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// first use peers to attempt joining an existing cluster
+			for _, member := range m.gossip.Members() {
+				if member.Name == m.etcd.Name {
+					continue
+				}
+				log.Debugf("[%v]: gossip peer: %+v", shortName(m.etcd.Name), member)
+				if member.Status != gossip.Running {
+					log.Debugf("[%v]: cannot join peer %#v in current status: %s", shortName(m.etcd.Name), shortName(member.Name), member.Status)
+					continue
+				}
+				if err := m.joinEtcdCluster(member.ClientURL); err != nil {
+					log.Debugf("[%v]: cannot join node %#v: %v", shortName(m.etcd.Name), member.ClientURL, err)
+					continue
+				}
+				log.Debug("joined an existing etcd cluster successfully")
+				return nil
+			}
+			log.Debugf("[%v]: cluster currently has %d members", shortName(m.etcd.Name), len(m.gossip.Members()))
+			if len(m.gossip.Members()) < m.cfg.RequiredClusterSize {
+				continue
+			}
+			if err := m.gossip.Update(gossip.Pending); err != nil {
+				log.Debugf("[%v]: cannot update member metadata: %v", shortName(m.etcd.Name), err)
+			}
+
+			// when enough members are reporting in as pending, it means that a
+			// majority of members were unable to connect to an existing
+			// cluster
+			if len(m.gossip.PendingMembers()) < m.cfg.RequiredClusterSize {
+				log.Debugf("[%v]: members pending: %d", shortName(m.etcd.Name), len(m.gossip.PendingMembers()))
+				continue
+			}
+			peers := make([]*etcdserver.Peer, 0)
+			for _, m := range m.gossip.Members() {
+				peers = append(peers, &etcdserver.Peer{Name: m.Name, URL: m.PeerURL})
+			}
+			return m.startEtcdCluster(peers)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	log.Infof("successfully loaded snapshot from: %#v", tmpFile.Name())
-	return true, nil
 }
 
 // startEtcdCluster starts a new etcd cluster with the provided peers. The list
@@ -188,7 +381,7 @@ func (m *Manager) restoreFromSnapshot(peers []*Peer) (bool, error) {
 // marker is created. This enables clients using e2d to coordinate their
 // cluster, by conveying information about whether this is a brand new cluster
 // or an existing cluster that recovered from total cluster failure.
-func (m *Manager) startEtcdCluster(peers []*Peer) error {
+func (m *Manager) startEtcdCluster(peers []*etcdserver.Peer) error {
 	snapshot, err := m.restoreFromSnapshot(peers)
 	if err != nil {
 		log.Error("cannot restore snapshot", zap.Error(err))
@@ -196,7 +389,7 @@ func (m *Manager) startEtcdCluster(peers []*Peer) error {
 	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
 	defer cancel()
 
-	if err := m.etcd.startNew(ctx, peers); err != nil {
+	if err := m.etcd.StartNew(ctx, peers); err != nil {
 		return err
 	}
 	if !snapshot {
@@ -207,9 +400,9 @@ func (m *Manager) startEtcdCluster(peers []*Peer) error {
 	// therefore do NOT get committed through the raft log. This is OK
 	// since all servers that recover from a snapshot will perform the same
 	// operations and the outcome is deterministic.
-	rev, deleted, err := m.etcd.clearVolatilePrefix()
+	rev, deleted, err := m.etcd.ClearVolatilePrefix()
 	if err != nil {
-		if errors.Cause(err) != errServerStopped {
+		if errors.Cause(err) != etcdserver.ErrServerStopped {
 			return err
 		}
 		log.Debug("cannot clear volatile prefix", zap.Error(err))
@@ -220,20 +413,57 @@ func (m *Manager) startEtcdCluster(peers []*Peer) error {
 		zap.Int64("revision", rev),
 	)
 	v := []byte(time.Now().Format(time.RFC3339))
-	rev, err = m.etcd.placeSnapshotMarker(v)
+	rev, err = m.etcd.PlaceSnapshotMarker(v)
 	if err != nil {
-		if errors.Cause(err) != errServerStopped {
+		if errors.Cause(err) != etcdserver.ErrServerStopped {
 			return err
 		}
 		log.Debug("cannot place snapshot marker", zap.Error(err))
 		return nil
 	}
 	log.Debug("placed snapshot marker",
-		zap.String("key", string(snapshotMarkerKey)),
+		zap.String("key", string(etcdserver.SnapshotMarkerKey)),
 		zap.String("value", string(v)),
 		zap.Int64("rev", rev),
 	)
 	return nil
+}
+
+func (m *Manager) restoreFromSnapshot(peers []*etcdserver.Peer) (bool, error) {
+	if m.snapshotter == nil {
+		return false, nil
+	}
+
+	r, err := m.snapshotter.Load()
+	if err != nil {
+		return false, err
+	}
+	defer r.Close()
+
+	log.Debugf("[%v]: attempting snapshot restore with members: %s", shortName(m.etcd.Name), peers)
+	tmpFile, err := ioutil.TempFile("", "snapshot.load")
+	if err != nil {
+		return false, err
+	}
+	defer tmpFile.Close()
+
+	r = snapshotutil.NewGunzipReadCloser(r)
+	r = snapshotutil.NewDecrypterReadCloser(r, m.snapshotEncryptionKey)
+	if _, err := io.Copy(tmpFile, r); err != nil {
+		return false, err
+	}
+
+	// if the process is restarted, this will fail if the data-dir already
+	// exists, so it must be deleted here
+	if err := os.RemoveAll(m.cfg.DataDir); err != nil {
+		log.Errorf("cannot remove data-dir: %v", err)
+	}
+	log.Infof("loading snapshot from: %#v", tmpFile.Name())
+	if err := m.etcd.RestoreSnapshot(tmpFile.Name(), peers); err != nil {
+		return false, err
+	}
+	log.Infof("successfully loaded snapshot from: %#v", tmpFile.Name())
+	return true, nil
 }
 
 // joinEtcdCluster attempts to join an etcd cluster by establishing a client
@@ -242,11 +472,15 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
 	defer cancel()
 
-	c, err := newClient(&client.Config{
+	cc, err := client.New(&client.Config{
 		ClientURLs:     []string{peerURL},
-		SecurityConfig: m.cfg.PeerSecurity,
+		SecurityConfig: m.etcd.PeerSecurity,
 		Timeout:        1 * time.Second,
 	})
+	c := &Client{
+		Client:  cc,
+		Timeout: 1 * time.Second,
+	}
 	if err != nil {
 		return err
 	}
@@ -262,32 +496,32 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 	// happens when restarting a node and specifying the previous node name.
 	// The previous node name MUST be specified since otherwise a new Name is
 	// generated.
-	if members[m.cfg.Name] != nil {
-		peers := make([]*Peer, 0)
+	if members[m.etcd.Name] != nil {
+		peers := make([]*etcdserver.Peer, 0)
 		for _, m := range members {
-			peers = append(peers, &Peer{m.Name, m.PeerURL})
+			peers = append(peers, &etcdserver.Peer{Name: m.Name, URL: m.PeerURL})
 		}
-		log.Infof("%s is already considered a member, attempting to start ...", m.cfg.Name)
-		if err := m.etcd.joinExisting(ctx, peers); err == nil {
+		log.Infof("%s is already considered a member, attempting to start ...", m.etcd.Name)
+		if err := m.etcd.JoinExisting(ctx, peers); err == nil {
 			return nil
 		}
-		log.Infof("%s is already considered a member, but failed to start, attempting to remove ...", m.cfg.Name)
-		if err := c.removeMemberLocked(ctx, members[m.cfg.Name]); err != nil {
+		log.Infof("%s is already considered a member, but failed to start, attempting to remove ...", m.etcd.Name)
+		if err := c.removeMemberLocked(ctx, members[m.etcd.Name]); err != nil {
 			return err
 		}
 	}
 
-	log.Infof("%s is NOT a member, attempting to add member and start ...", m.cfg.Name)
-	if err := os.RemoveAll(m.cfg.Dir); err != nil {
-		log.Errorf("failed to remove data dir %s, %v", m.cfg.Dir, err)
+	log.Infof("%s is NOT a member, attempting to add member and start ...", m.etcd.Name)
+	if err := os.RemoveAll(m.cfg.DataDir); err != nil {
+		log.Errorf("failed to remove data dir %s, %v", m.cfg.DataDir, err)
 	}
-	unlock, err := c.Lock(m.cfg.Name, 10*time.Second)
+	unlock, err := c.Lock(m.etcd.Name, 10*time.Second)
 	if err != nil {
 		return err
 	}
 	defer unlock()
 
-	member, err := c.addMember(ctx, m.cfg.PeerURL.String())
+	member, err := c.addMember(ctx, m.etcd.PeerURL.String())
 	if err != nil {
 		return err
 	}
@@ -295,264 +529,15 @@ func (m *Manager) joinEtcdCluster(peerURL string) error {
 	// The name will not be available immediately after adding a new member.
 	// Since the member missing is this member, we can safely use the local
 	// member name.
-	peers := []*Peer{{m.cfg.Name, m.cfg.PeerURL.String()}}
+	peers := []*etcdserver.Peer{{Name: m.etcd.Name, URL: m.etcd.PeerURL.String()}}
 	for _, m := range members {
-		peers = append(peers, &Peer{m.Name, m.PeerURL})
+		peers = append(peers, &etcdserver.Peer{Name: m.Name, URL: m.PeerURL})
 	}
-	if err := m.etcd.joinExisting(ctx, peers); err != nil {
+	if err := m.etcd.JoinExisting(ctx, peers); err != nil {
 		if err := c.removeMember(m.ctx, member.ID); err != nil {
 			log.Debug("unable to remove member", zap.Error(err))
 		}
 		return err
 	}
 	return nil
-}
-
-func (m *Manager) startOrJoinEtcdCluster() error {
-	ctx, cancel := context.WithTimeout(m.ctx, m.cfg.BootstrapTimeout)
-	defer cancel()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// first use peers to attempt joining an existing cluster
-			for _, member := range m.gossip.Members() {
-				if member.Name == m.cfg.Name {
-					continue
-				}
-				log.Debugf("[%v]: gossip peer: %+v", shortName(m.cfg.Name), member)
-				if member.Status != Running {
-					log.Debugf("[%v]: cannot join peer %#v in current status: %s", shortName(m.cfg.Name), shortName(member.Name), member.Status)
-					continue
-				}
-				if err := m.joinEtcdCluster(member.ClientURL); err != nil {
-					log.Debugf("[%v]: cannot join node %#v: %v", shortName(m.cfg.Name), member.ClientURL, err)
-					continue
-				}
-				log.Debug("joined an existing etcd cluster successfully")
-				return nil
-			}
-			log.Debugf("[%v]: cluster currently has %d members", shortName(m.cfg.Name), len(m.gossip.Members()))
-			if len(m.gossip.Members()) < m.cfg.RequiredClusterSize {
-				continue
-			}
-			if err := m.gossip.Update(Pending); err != nil {
-				log.Debugf("[%v]: cannot update member metadata: %v", shortName(m.cfg.Name), err)
-			}
-
-			// when enough members are reporting in as pending, it means that a
-			// majority of members were unable to connect to an existing
-			// cluster
-			if len(m.gossip.pendingMembers()) < m.cfg.RequiredClusterSize {
-				log.Debugf("[%v]: members pending: %d", shortName(m.cfg.Name), len(m.gossip.pendingMembers()))
-				continue
-			}
-			peers := make([]*Peer, 0)
-			for _, m := range m.gossip.Members() {
-				peers = append(peers, &Peer{m.Name, m.PeerURL})
-			}
-			return m.startEtcdCluster(peers)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
-func (m *Manager) runMembershipCleanup() {
-	if m.cfg.RequiredClusterSize == 1 {
-		return
-	}
-	for {
-		select {
-		case ev := <-m.gossip.Events():
-			log.Debugf("[%v]: received membership event: %v", shortName(m.cfg.Name), ev)
-
-			// It is possible to receive an event from memberlist where the
-			// Node is nil. This most likely happens when starting and stopping
-			// the server quickly, so is mostly observed during testing.
-			if ev.Node == nil {
-				continue
-			}
-
-			// When this member's gossip network does not have enough members
-			// to be considered a majority, it is no longer eligible to affect
-			// cluster membership. This helps ensure that when a network
-			// partition takes place that minority partition(s) will not
-			// attempt to change cluster membership. Only members in Running
-			// status are considered.
-			if !m.cluster.ensureQuorum(len(m.gossip.runningMembers()) > m.cfg.RequiredClusterSize/2) {
-				log.Info("not enough members are healthy to remove other members",
-					zap.String("name", shortName(m.cfg.Name)),
-					zap.Int("gossip-members", len(m.gossip.runningMembers())),
-					zap.Int("required-cluster-size", m.cfg.RequiredClusterSize),
-				)
-			}
-
-			member := &Member{}
-			if err := member.Unmarshal(ev.Node.Meta); err != nil {
-				log.Debugf("[%v]: cannot unmarshal node meta: %v", shortName(m.cfg.Name), err)
-				continue
-			}
-
-			// This member must not acknowledge membership changes related to
-			// itself. Gossip events are used to determine when a member needs
-			// to be evicted, and this responsibility falls to peers only (i.e.
-			// a member should never evict itself). The PeerURL is used rather
-			// than the name or gossip address as it better represents a
-			// distinct member of the cluster as only one PeerURL will ever be
-			// present on a network.
-			if member.PeerURL == m.cfg.PeerURL.String() {
-				continue
-			}
-			switch ev.Event {
-			case memberlist.NodeJoin:
-				log.Debugf("[%v]: member joined: %#v", shortName(m.cfg.Name), member.Name)
-
-				// The name of the new member is compared with any members with
-				// a matching PeerURL that are currently part of the etcd
-				// cluster membership. In the case that a member is still part
-				// of the etcd cluster membership, but has a different name
-				// than the joining member, the assertion can be made that the
-				// existing member is now defunct and can be removed
-				// immediately to allow the new member to join. Since members
-				// do not handle gossip events for their own PeerURL, this
-				// check will only ever be performed by peers of the member
-				// joining the gossip network.
-				if oldName, err := m.etcd.lookupMemberNameByPeerAddr(member.PeerURL); err == nil {
-					log.Debugf("[%v]: member %v peerAddr in use by member %v", shortName(m.cfg.Name), member.Name, oldName)
-					if oldName != member.Name {
-						log.Debugf("[%v]: members name mismatched, evicting %v", shortName(m.cfg.Name), oldName)
-						if err := m.cluster.removeMember(oldName); err != nil {
-							log.Debug("unable to remove member", zap.Error(err))
-						}
-					}
-				}
-
-				m.cluster.removeSuspect(member.Name)
-			case memberlist.NodeLeave:
-				m.cluster.addSuspect(member.Name)
-			case memberlist.NodeUpdate:
-			}
-		case <-m.ctx.Done():
-			return
-		}
-	}
-}
-
-func (m *Manager) runSnapshotter() {
-	if m.snapshotter == nil {
-		log.Info("snapshotting disabled: no snapshot backup set")
-		return
-	}
-	log.Debug("starting snapshotter")
-	ticker := time.NewTicker(m.cfg.SnapshotInterval)
-	defer ticker.Stop()
-
-	var latestRev int64
-
-	for {
-		select {
-		case <-ticker.C:
-			if m.etcd.isRestarting() {
-				log.Debug("server is restarting, skipping snapshot backup")
-				continue
-			}
-			if !m.etcd.isLeader() {
-				log.Debug("not leader, skipping snapshot backup")
-				continue
-			}
-			log.Debug("starting snapshot backup")
-			snapshotData, snapshotSize, rev, err := m.etcd.createSnapshot(latestRev)
-			if err != nil {
-				log.Debug("cannot create snapshot",
-					zap.String("name", shortName(m.cfg.Name)),
-					zap.Error(err),
-				)
-				continue
-			}
-			if m.cfg.SnapshotEncryption {
-				snapshotData = snapshotutil.NewEncrypterReadCloser(snapshotData, m.cfg.snapshotEncryptionKey, snapshotSize)
-			}
-			if m.cfg.SnapshotCompression {
-				snapshotData = snapshotutil.NewGzipReadCloser(snapshotData)
-			}
-			if err := m.snapshotter.Save(snapshotData); err != nil {
-				log.Debug("cannot save snapshot",
-					zap.String("name", shortName(m.cfg.Name)),
-					zap.Error(err),
-				)
-				continue
-			}
-			latestRev = rev
-			log.Infof("wrote snapshot (rev %d) to backup", latestRev)
-		case <-m.ctx.Done():
-			log.Debug("stopping snapshotter")
-			return
-		}
-	}
-}
-
-// Run starts and manages an etcd node based upon the provided configuration.
-// In the case of a fault, or if the manager is otherwise stopped, this method
-// exits.
-func (m *Manager) Run() error {
-	if m.etcd.isRunning() {
-		return errors.New("etcd is already running")
-	}
-
-	switch m.cfg.RequiredClusterSize {
-	case 1:
-		// a single-node etcd cluster does not require gossip or need to wait for
-		// other members and therefore can start immediately
-		if err := m.startEtcdCluster([]*Peer{{m.cfg.Name, m.cfg.PeerURL.String()}}); err != nil {
-			return err
-		}
-	case 3, 5:
-		// all multi-node clusters require the gossip network to be started
-		if err := m.gossip.Start(m.ctx, m.cfg.BootstrapAddrs); err != nil {
-			return err
-		}
-
-		// a multi-node etcd cluster will either be created or an existing one will
-		// be joined
-		if err := m.startOrJoinEtcdCluster(); err != nil {
-			return err
-		}
-
-		if err := m.gossip.Update(Running); err != nil {
-			log.Debugf("[%v]: cannot update member metadata: %v", m.cfg.Name, err)
-		}
-	}
-
-	// cluster is ready so start maintenance loops
-	go m.runMembershipCleanup()
-	go m.runSnapshotter()
-
-	for {
-		select {
-		case <-m.etcd.Server.StopNotify():
-			log.Info("etcd server stopping ...",
-				zap.Stringer("id", m.etcd.Server.ID()),
-				zap.String("name", m.cfg.Name),
-			)
-			if m.etcd.isRestarting() {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			if m.cfg.RequiredClusterSize == 1 {
-				return nil
-			}
-			if err := m.gossip.Update(Unknown); err != nil {
-				log.Debugf("[%v]: cannot update member metadata: %v", m.cfg.Name, err)
-			}
-			return nil
-		case err := <-m.etcd.Err():
-			return err
-		case <-m.ctx.Done():
-			return nil
-		}
-	}
 }

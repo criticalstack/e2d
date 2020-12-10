@@ -11,7 +11,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/criticalstack/e2d/e2e"
+	configv1alpha1 "github.com/criticalstack/e2d/pkg/config/v1alpha1"
 	"github.com/criticalstack/e2d/pkg/e2db"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/manager"
@@ -26,16 +29,15 @@ func init() {
 		log.Fatal(err)
 	}
 
-	m, err := manager.New(&manager.Config{
-		Name:                "node1",
-		ClientAddr:          ":2479",
-		PeerAddr:            ":2480",
-		GossipAddr:          ":7980",
-		Dir:                 filepath.Join("testdata", "node1"),
+	m, err := manager.New(&configv1alpha1.Configuration{
+		OverrideName:        "node1",
+		ClientAddr:          e2e.ParseAddr(":2479"),
+		PeerAddr:            e2e.ParseAddr(":2480"),
+		GossipAddr:          e2e.ParseAddr(":7980"),
+		DataDir:             filepath.Join("testdata", "node1"),
 		RequiredClusterSize: 1,
-		HealthCheckInterval: 1 * time.Second,
-		HealthCheckTimeout:  5 * time.Second,
-		EtcdLogLevel:        zapcore.WarnLevel,
+		HealthCheckInterval: metav1.Duration{Duration: 1 * time.Second},
+		HealthCheckTimeout:  metav1.Duration{Duration: 5 * time.Second},
 	})
 	if err != nil {
 		log.Fatal(err)

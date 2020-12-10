@@ -2,13 +2,13 @@ package discovery
 
 import (
 	"context"
+	"os"
 
-	"github.com/criticalstack/e2d/pkg/provider/digitalocean"
+	"github.com/criticalstack/e2d/internal/provider/digitalocean"
 )
 
 type DigitalOceanConfig struct {
-	AccessToken string
-	TagValue    string
+	TagValue string
 }
 
 type DigitalOceanPeerGetter struct {
@@ -18,12 +18,14 @@ type DigitalOceanPeerGetter struct {
 
 func NewDigitalOceanPeerGetter(cfg *DigitalOceanConfig) (*DigitalOceanPeerGetter, error) {
 	client, err := digitalocean.NewClient(&digitalocean.Config{
-		AccessToken: cfg.AccessToken,
+		AccessToken:     os.Getenv("ACCESS_TOKEN"),
+		SpacesAccessKey: os.Getenv("SPACES_ACCESS_KEY"),
+		SpacesSecretKey: os.Getenv("SPACES_SECRET_KEY"),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &DigitalOceanPeerGetter{client, cfg}, nil
+	return &DigitalOceanPeerGetter{Client: client, cfg: cfg}, nil
 }
 
 func (p *DigitalOceanPeerGetter) GetAddrs(ctx context.Context) ([]string, error) {

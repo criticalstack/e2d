@@ -1,6 +1,6 @@
 # e2d
 
-[![GoDoc](https://godoc.org/github.com/criticalstack/e2d?status.svg)](https://godoc.org/github.com/criticalstack/e2d)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/criticalstack/e2d)](https://pkg.go.dev/github.com/criticalstack/e2d)
 [![Build Status](https://cloud.drone.io/api/badges/criticalstack/e2d/status.svg)](https://cloud.drone.io/criticalstack/e2d)
 
 e2d is a command-line tool for deploying and managing etcd clusters, both in the cloud or on bare-metal. It also includes [e2db](https://github.com/criticalstack/e2d/tree/master/pkg/e2db), an ORM-like abstraction for working with etcd.
@@ -9,8 +9,8 @@ e2d is a command-line tool for deploying and managing etcd clusters, both in the
 
 - [What is e2d](#what-is-e2d)
   - [Features](#features)
-  - [Design](#design)
-- [Getting started](#getting-started)
+  - [Installation](#installation)
+  - [Getting started](#getting-started)
   - [Required ports](#required-ports)
 - [Configuration](#configuration)
   - [Peer discovery](#peer-discovery)
@@ -21,7 +21,6 @@ e2d is a command-line tool for deploying and managing etcd clusters, both in the
 - [Usage](#usage)
   - [Generating certificates](#generating-certificates)
   - [Running with systemd](#running-with-systemd)
-  - [Running with Kubernetes](#running-with-kubernetes)
 - [FAQ](#faq)
 
 ## What is e2d
@@ -43,30 +42,80 @@ e2d is designed to manage highly available etcd clusters in the cloud. It can be
    
    In dynamic cloud environments, etcd membership is seeded from cloud provider APIs and maintained via a gossip network. This ensures etcd stays healthy and available when nodes might be automatically created or destroyed.
 
-### Design
+### Installation
 
-A key design philosophy of e2d is ease-of-use, so having minimal and/or automatic configuration is an important part of the user experience. Since e2d uses a gossip network for peer discovery, cloud metadata services can be leveraged to dynamically create the initial etcd bootstrap configuration. The gossip network is also used for determining node liveness, ensuring that healthy members can safely (and automatically) remove and replace a failing minority of members. An automatic snapshot feature creates periodic backups, which can be restored in the case of a majority failure of etcd members. This is all handled for the user by simply setting a shared file location for the snapshot, and e2d handles the rest. This ends up being incredibly helpful for those using Kubernetes in their dev environments, where cost-savings policies might stop instances over nights/weekends.
+The easiest way to install:
 
-While e2d makes use of cloud provider specific features, it never depends on them. The abstraction for peer discovery and snapshot storage are generalized so they can be ported to many different platforms trivially. Another neat aspect of e2d is that it embeds etcd directly into its own binary, effectively using it like a library. This is what enables some of the more complex automation, and with only one binary it reduces the complexity of deploying into production.
+```sh
+curl -sSfL https://raw.githubusercontent.com/criticalstack/e2d/master/scripts/install.sh | sh
+```
 
-## Getting started
+Pre-built binaries are also available in [Releases](https://github.com/criticalstack/e2d/releases/latest). e2d is written in Go so it is also pretty simple to install via go:
+
+```sh
+go get github.com/criticalstack/e2d/cmd/e2d
+```
+
+Packages can also be installed from [packagecloud.io](https://packagecloud.io/criticalstack/public) (includes systemd service file).
+
+Debian/Ubuntu:
+
+```sh
+curl -sL https://packagecloud.io/criticalstack/public/gpgkey | apt-key add -
+apt-add-repository https://packagecloud.io/criticalstack/public/ubuntu
+apt-get install -y e2d
+```
+
+Fedora:
+
+```sh
+dnf config-manager --add-repo https://packagecloud.io/criticalstack/public/fedora
+dnf install -y e2d
+```
+
+### Getting started
 
 Running a single-node cluster:
 
-```bash
-$ e2d run
+```sh
+❯ e2d run
 ```
 
-Multi-node clusters require that the `--required-cluster-size/-n` flag be set with the desired size of the cluster. Each node must also either provide a seed of peers (via the `--bootstrap-addrs` flag):
+Configuration is made through a single yaml file passed to `e2d run` via the `--config/-c` flag:
 
-```bash
-$ e2d run -n 3 --bootstrap-addrs 10.0.2.15,10.0.2.17
+```sh
+❯ e2d run -c config.yaml
+```
+
+Multi-node clusters require the `requiredClusterSize` value be set with the desired size of the cluster. Each node must also either provide a seed of peers (via `initialPeers`):
+
+```yaml
+requiredClusterSize: 3
+discovery:
+  initialPeers:
+    - 10.0.2.15:7980
+    - 10.0.2.17:7980
 ```
 
 or specify a method for [peer discovery](#peer-discovery):
 
-```bash
-$ e2d run -n 3 --peer-discovery aws-autoscaling-group
+```yaml
+requiredClusterSize: 3
+discovery:
+  type: aws/autoscaling-group
+
+  # optionally provide the name of the ASG, otherwise will default to detecting
+  # the ASG for the EC2 instance
+  matches:
+    name: my-asg
+```
+
+The e2d configuration file uses Kubernetes-like API versioning, ensuring that compatbility is maintained through implicit conversions. If `apiVersion` and `kind` are not provided, the version for the e2d binary is presumed, otherwise an explicit version can be provided as needed:
+
+```yaml
+apiVersion: e2d.crit.sh/v1alpha1
+kind: Configuration
+...
 ```
 
 ### Required ports
@@ -88,16 +137,23 @@ The same ports required by etcd are necessary, along with a couple new ones:
 
 Peers can be automatically discovered based upon several different built-in methods:
 
-| Method | Usage |
+| Method | Name |
 | --- | --- |
-| AWS Autoscaling Group | `aws-autoscaling-group` |
-| AWS EC2 tags | `ec2-tags[:<name>=<value>,<name>=<value>]` |
-| Digital Ocean tags | `do-tags[:<value>,<value>]` |
+| AWS Autoscaling Group | `aws/autoscaling-group` |
+| AWS EC2 tags | `aws/tags` |
+| Digital Ocean tags | `digitalocean/tags` |
 
 For example, running a 3-node cluster in AWS where initial peers are found via ec2 tags:
 
-```bash
-$ e2d run -n 3 --peer-discovery ec2-tags:Name=my-cluster,Email=admin@example.com
+```sh
+❯ e2d run -c - <<EOT
+requiredClusterSize: 3
+discovery:
+  type: aws/tags
+  matches:
+    Name: my-cluster
+    Email: admin@example.com
+EOT
 ```
 
 which will match for any EC2 instance that has both of the provided tags.
@@ -106,23 +162,52 @@ which will match for any EC2 instance that has both of the provided tags.
 
 Periodic backups can be made of the entire database, and e2d automates both creating these snapshot backups, as well as, restoring them in the event of a disaster.
 
-Getting started with periodic snapshots only requires passing a file location to `--snapshot-backup-url`. The url is then parsed to determine the target storage and location. When e2d first starts up, the presence of a valid backup file at the provided URL indicates it should attempt to restore from this snapshot.
+
+```yaml
+snapshot:
+  interval: 5m
+  file: s3://bucket/snapshot.tar.gz
+```
+
+The `snapshot.file` url is parsed to determine the target storage and location. When e2d first starts up, the presence of a valid backup file at the provided URL indicates it should attempt to restore from this snapshot (however, this may change to require explicit configuration).
 
 #### Compression
 
-The internal database layout of etcd lends itself to being compressed. This is why e2d allows for snapshots to be compressed in-memory at the time of creation. To enable gzip compression, use the `--snapshot-compression` flag.
+The internal database layout of etcd lends itself to being compressed. To enable gzip compression set `snapshot.compression` to true in your config file:
+
+```yaml
+snapshot:
+  compression: true
+```
 
 #### Encryption
 
-Snapshot storage options like S3 use TLS and offer encryption-at-rest, however, it is possible that encryption of the snapshot file itself might be needed. This is especially true for other storage options that do not offer these features. Enabling snapshot encryption is simply `--snapshot-encryption`. The encryption key itself is derived only from the CA private key, so enabling encryption also requires passing `--ca-key <key path>`.
+Snapshot storage options like S3 use TLS and offer encryption-at-rest, however, it is possible that encryption of the snapshot file itself might be needed. This is especially true for other storage options that do not offer these features. Enabling snapshot encryption is simply a flag in the e2d configuration file, however, must be combined with `caCert`/`caKey` since the encryption key itself is derived from the CA private key:
+
+```yaml
+caCert: /etc/kubernetes/pki/etcd/ca.crt
+caKey: /etc/kubernetes/pki/etcd/ca.key
+snapshot:
+  encryption: true
+```
 
 The encryption being used is AES-256 in [CTR mode](https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#Counter_(CTR)), with message authentication provided by HMAC-512_256. This mode was used because the Go implementation of AES-GCM would require the entire snapshot to be in-memory, and CTR mode allows for memory efficient streaming.
 
-It is possible to use compression alongside of encryption, however, it is important to note that because of the possibility of opening up side-channel attacks, compression is not performed before encryption. The nature of how strong encryption works causes the encrypted snapshot to not gain benefits from compression. So enabling snapshot compression with encryption will cause the gzip level to be set to `gzip.NoCompression`, meaning it still creates a valid gzip file, but doesn't waste nearly as many compute resources while doing so.
+It is possible to use compression alongside of encryption, however, it is important to note that because of the possibility of opening up side-channel attacks, compression is not performed before encryption. The nature of how strong encryption works causes the encrypted snapshot to not gain benefits from compression. So enabling snapshot compression with encryption will cause the gzip level to be set to `gzip.NoCompression`, meaning it still creates a valid gzip file, but doesn't waste nearly as many compute resources while doing so (it is used because the gzip header is useful for file-type detection and checksum validation).
+
+```yaml
+caCert: /etc/kubernetes/pki/etcd/ca.crt
+caKey: /etc/kubernetes/pki/etcd/ca.key
+snapshot:
+  compression: true
+  encryption: true
+  interval: 5m
+  file: s3://bucket/snapshot.tar.gz
+```
 
 #### Storage options
 
-The `--snapshot-backup-url` has several schemes it implicitly understands:
+The `snapshot.file` value has several schemes it implicitly understands:
 
 | Storage Type | Usage |
 | --- | --- |
@@ -141,39 +226,23 @@ Note: these examples assume e2d is being deployed in AWS.
 Mutual TLS authentication is highly recommended and e2d embeds the necessary functionality to generate the required key pairs. To get started with a new e2d cluster, first initialize a new key/cert pair:
 
 ```bash
-$ e2d pki init
+❯ e2d certs init
 ```
 
-Then create the remaining certificates for the client, peer, and server communication:
-
-```bash
-$ e2d pki gencerts
-```
-
-This will create the remaining key pairs needed to run e2d based on the initial cluster key pair.
+The remaining certificates for the client, peer, and server communication are created automatically and placed in the same directory as the CA key/cert.
 
 ### Running with systemd
 
-An example unit file for running via systemd in an AWS ASG:
+This systemd service file is provided with the Debian/Ubuntu packages:
 
 ```
 [Unit]
 Description=e2d
 
 [Service]
-ExecStart=/usr/local/bin/e2d run \
-  --data-dir=/var/lib/etcd \
-  --ca-cert=/etc/kubernetes/pki/etcd/ca.crt \
-  --ca-key=/etc/kubernetes/pki/etcd/ca.crt \
-  --client-cert=/etc/kubernetes/pki/etcd/client.crt \
-  --client-key=/etc/kubernetes/pki/etcd/client.key \
-  --peer-cert=/etc/kubernetes/pki/etcd/peer.crt \
-  --peer-key=/etc/kubernetes/pki/etcd/peer.key \
-  --server-cert=/etc/kubernetes/pki/etcd/server.crt \
-  --server-key=/etc/kubernetes/pki/etcd/server.key \
-  --peer-discovery=aws-autoscaling-group \
-  --required-cluster-size=3 \
-  --snapshot-backup-url=s3://e2d_snapshot_bucket
+Environment="E2D_CONFIG_ARGS=--config=/etc/e2d.yaml"
+ExecStart=/usr/local/bin/e2d run $E2D_CONFIG_ARGS
+EnvironmentFile=-/etc/e2d.conf
 Restart=on-failure
 RestartSec=30
 
@@ -181,9 +250,7 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-### Running in Kubernetes
-
-e2d currently doesn't have the integration necessary to run correctly within Kubernetes, however, it should be relatively easy to add the necessary discovery features to make that work and is planned for future releases of e2d.
+It relies on providing the e2d configuration in a fixed location: `/etc/e2d.yaml`. Environment variables can be set for the service by providing them in the `/etc/e2d.conf` file.
 
 ## FAQ
 

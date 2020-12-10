@@ -3,8 +3,9 @@ package discovery
 import (
 	"context"
 
-	e2daws "github.com/criticalstack/e2d/pkg/provider/aws"
 	"github.com/pkg/errors"
+
+	e2daws "github.com/criticalstack/e2d/internal/provider/aws"
 )
 
 type AmazonAutoScalingPeerGetter struct {

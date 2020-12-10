@@ -19,31 +19,37 @@ var (
 )
 
 // NewLogger creates a new child logger with the provided namespace.
-func NewLogger(ns string) *zap.Logger {
+func NewLogger(ns string, opts ...zap.Option) *zap.Logger {
 	encoder := NewEncoder(NewDefaultEncoderConfig())
 	encoder.OpenNamespace(ns)
-	return log.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+	opts = append(opts, zap.WrapCore(func(c zapcore.Core) zapcore.Core {
 		return zapcore.NewCore(
 			encoder,
 			zapcore.AddSync(os.Stderr),
 			level,
 		)
-	}), zap.AddCaller())
+	}))
+	return log.WithOptions(opts...)
 }
 
-// NewLogger creates a new child logger with the provided namespace and level.
-// Since this specifies a level, it overrides the global package level for this
-// child logger only.
-func NewLoggerWithLevel(ns string, lvl zapcore.Level) *zap.Logger {
+// NewLoggerWithLevel creates a new child logger with the provided namespace
+// and level. Since this specifies a level, it overrides the global package
+// level for this child logger only.
+func NewLoggerWithLevel(ns string, lvl zapcore.Level, opts ...zap.Option) *zap.Logger {
 	encoder := NewEncoder(NewDefaultEncoderConfig())
 	encoder.OpenNamespace(ns)
-	return log.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+	opts = append(opts, zap.WrapCore(func(c zapcore.Core) zapcore.Core {
 		return zapcore.NewCore(
 			encoder,
 			zapcore.AddSync(os.Stderr),
 			lvl,
 		)
 	}))
+	return log.WithOptions(opts...)
+}
+
+func Level() zapcore.Level {
+	return level.Level()
 }
 
 func SetLevel(lvl zapcore.Level) {

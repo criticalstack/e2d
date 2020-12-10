@@ -8,6 +8,7 @@ import (
 
 	"github.com/criticalstack/e2d/pkg/client"
 	"github.com/criticalstack/e2d/pkg/e2db"
+	"github.com/criticalstack/e2d/pkg/etcdserver"
 	"github.com/criticalstack/e2d/pkg/log"
 	"github.com/criticalstack/e2d/pkg/manager/e2dpb"
 )
@@ -21,24 +22,24 @@ func (s *ManagerService) Health(ctx context.Context, _ *types.Empty) (*e2dpb.Hea
 		Status: "not great, bob",
 	}
 	db, err := e2db.New(ctx, &e2db.Config{
-		ClientAddr: s.m.cfg.ClientURL.String(),
-		CAFile:     s.m.cfg.PeerSecurity.TrustedCAFile,
-		CertFile:   s.m.cfg.PeerSecurity.CertFile,
-		KeyFile:    s.m.cfg.PeerSecurity.KeyFile,
-		Namespace:  string(volatilePrefix),
+		ClientAddr: s.m.etcd.ClientURL.String(),
+		CAFile:     s.m.etcd.PeerSecurity.TrustedCAFile,
+		CertFile:   s.m.etcd.PeerSecurity.CertFile,
+		KeyFile:    s.m.etcd.PeerSecurity.KeyFile,
+		Namespace:  string(etcdserver.VolatilePrefix),
 	})
 	if err != nil {
 		return resp, err
 	}
 	defer db.Close()
 
-	var cluster *Cluster
-	if err := db.Table(new(Cluster)).Find("ID", 1, &cluster); err != nil {
+	var cluster *etcdserver.Cluster
+	if err := db.Table(new(etcdserver.Cluster)).Find("ID", 1, &cluster); err != nil {
 		return resp, err
 	}
 	c, err := client.New(&client.Config{
-		ClientURLs:     []string{s.m.cfg.ClientURL.String()},
-		SecurityConfig: s.m.cfg.PeerSecurity,
+		ClientURLs:     []string{s.m.etcd.ClientURL.String()},
+		SecurityConfig: s.m.etcd.PeerSecurity,
 	})
 	if err != nil {
 		return resp, err
@@ -60,7 +61,7 @@ func (s *ManagerService) Restart(ctx context.Context, _ *types.Empty) (*e2dpb.Re
 	resp := &e2dpb.RestartResponse{
 		Msg: "attempting restarting ...",
 	}
-	if s.m.etcd.isRestarting() {
+	if s.m.etcd.IsRestarting() {
 		resp.Msg = "a restart is already in progress"
 		return resp, nil
 	}
