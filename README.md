@@ -1,3 +1,5 @@
+# Due to changes in the priorities, this project is currently not being supported. The project is archived as of 11/16/21 and will be available in a read-only state. Please note, since archival, the project is not maintained or reviewed. #
+
 # e2d
 
 [![GoDoc](https://godoc.org/github.com/criticalstack/e2d?status.svg)](https://godoc.org/github.com/criticalstack/e2d)
