@@ -22,13 +22,13 @@ steps:
     event:
       - push
 
-- name: manager-testing
+- name: e2e
   image: golang:1.14
   volumes:
   - name: gocache
     path: /go
   commands:
-  - go test -v ./pkg/manager -test.long
+  - make test-e2e
   when:
     branch:
       - master

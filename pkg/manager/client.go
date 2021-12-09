@@ -8,24 +8,17 @@ import (
 	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 
 	"github.com/criticalstack/e2d/pkg/client"
+	"github.com/criticalstack/e2d/pkg/gossip"
 )
 
 type Client struct {
 	*client.Client
 
-	cfg *client.Config
+	Timeout time.Duration
 }
 
-func newClient(cfg *client.Config) (*Client, error) {
-	c, err := client.New(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return &Client{c, cfg}, nil
-}
-
-func (c *Client) members(ctx context.Context) (map[string]*Member, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+func (c *Client) members(ctx context.Context) (map[string]*gossip.Member, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
 	resp, err := c.MemberList(ctx)
@@ -33,9 +26,9 @@ func (c *Client) members(ctx context.Context) (map[string]*Member, error) {
 		return nil, err
 	}
 
-	members := make(map[string]*Member)
+	members := make(map[string]*gossip.Member)
 	for _, member := range resp.Members {
-		m := &Member{
+		m := &gossip.Member{
 			ID:   member.ID,
 			Name: member.Name,
 		}
@@ -50,15 +43,15 @@ func (c *Client) members(ctx context.Context) (map[string]*Member, error) {
 	return members, nil
 }
 
-func (c *Client) addMember(ctx context.Context, peerURL string) (*Member, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+func (c *Client) addMember(ctx context.Context, peerURL string) (*gossip.Member, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
 	resp, err := c.MemberAdd(ctx, []string{peerURL})
 	if err != nil {
 		return nil, err
 	}
-	m := &Member{
+	m := &gossip.Member{
 		ID:   resp.Member.ID,
 		Name: resp.Member.Name,
 	}
@@ -72,7 +65,7 @@ func (c *Client) addMember(ctx context.Context, peerURL string) (*Member, error)
 }
 
 func (c *Client) removeMember(ctx context.Context, id uint64) error {
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
 	if _, err := c.MemberRemove(ctx, id); err != nil && err != rpctypes.ErrMemberNotFound {
@@ -81,14 +74,14 @@ func (c *Client) removeMember(ctx context.Context, id uint64) error {
 	return nil
 }
 
-func (c *Client) removeMemberLocked(ctx context.Context, member *Member) error {
+func (c *Client) removeMemberLocked(ctx context.Context, member *gossip.Member) error {
 	unlock, err := c.Lock(member.Name, 10*time.Second)
 	if err != nil {
 		return err
 	}
 	defer unlock()
 
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
 	return c.removeMember(ctx, member.ID)

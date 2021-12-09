@@ -1,4 +1,4 @@
-module github.com/critical-stack/e2d/hack/tools
+module github.com/criticalstack/e2d/hack/tools
 
 go 1.13
 

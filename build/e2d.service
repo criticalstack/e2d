@@ -1,0 +1,12 @@
+[Unit]
+Description=e2d
+
+[Service]
+Environment="E2D_CONFIG_ARGS=--config=/etc/e2d.yaml"
+ExecStart=/usr/local/bin/e2d run $E2D_CONFIG_ARGS
+EnvironmentFile=-/etc/e2d.conf
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

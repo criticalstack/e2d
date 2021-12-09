@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/criticalstack/e2d/pkg/client"
-	"github.com/criticalstack/e2d/pkg/netutil"
+	netutil "github.com/criticalstack/e2d/pkg/util/net"
 )
 
 type Config struct {
